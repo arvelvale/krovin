@@ -19,7 +19,7 @@ export function node(
   const size = o.size ?? 30;
   const pad = sub ? h / 2 - 2 : h / 2 + size * 0.35;
   text(ctx, title, tx, y + pad, { size, p: clamp01(p * 1.6 - 0.4), align: center ? "center" : "left", color: o.color ?? C.ink });
-  if (sub) text(ctx, sub, tx, y + h / 2 + size * 0.95, { size: size * 0.62, p: clamp01(p * 1.6 - 0.7), align: center ? "center" : "left", color: C.soft, font: "mono" });
+  if (sub) text(ctx, sub, tx, y + h / 2 + size * 0.95, { size: size * 0.62, p: clamp01(p * 1.8 - 0.7), align: center ? "center" : "left", color: C.soft, font: "mono" });
 }
 
 /** 小标签（圆角胶囊） */

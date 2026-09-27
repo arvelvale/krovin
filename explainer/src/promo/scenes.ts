@@ -148,8 +148,8 @@ const idea: Scene = {
       text(ctx, title, x + 185, 400, { size: 36, align: "center", p: clamp01(p * 1.5 - 0.3) });
       text(ctx, sub, x + 185, 460, { size: 26, align: "center", p: clamp01(p * 1.5 - 0.5), color: C.soft, font: "mono" });
       bar(ctx, x + 40, 510, 290, 34, v, clamp01(p * 1.4 - 0.4), v >= 0.5 ? C.green : C.amber, 60 + i);
-      stroke(ctx, [[x + 40 + 290 * 0.5, 498], [x + 40 + 290 * 0.5, 556]], clamp01(p * 1.4 - 0.5), { color: C.red, width: 2.6, seed: 70 + i, double: false });
-      text(ctx, v.toFixed(2), x + 185, 596, { size: 30, align: "center", p: clamp01(p * 1.5 - 0.6), font: "mono" });
+      stroke(ctx, [[x + 40 + 290 * 0.5, 498], [x + 40 + 290 * 0.5, 556]], clamp01(p * 1.6 - 0.5), { color: C.red, width: 2.6, seed: 70 + i, double: false });
+      text(ctx, v.toFixed(2), x + 185, 596, { size: 30, align: "center", p: clamp01(p * 1.7 - 0.6), font: "mono" });
     });
     stamp(ctx, "JEV", 1700, 250, s.p(0, 0.6, 0.5), C.green, -0.1, 44);
     // 第二句：阈值写在代码里 + 轨迹
@@ -218,8 +218,10 @@ const fix = uiScene({
       const lines = ["17 步 · 2 分 46 秒", "测试 3 → 8 个，全部通过", "分支 agent/day-298-cents"];
       box(ctx, 40, 700, 610, 190, q, { color: C.green, width: 3, seed: 91 }, "rgba(255, 252, 240, 0.96)", 12);
       lines.forEach((l, i) => {
-        check(ctx, 68, 736 + i * 52, 26, clamp01(q * 1.5 - 0.3 - i * 0.15));
-        text(ctx, l, 110, 758 + i * 52, { size: 32, p: clamp01(q * 1.5 - 0.35 - i * 0.15), font: i === 2 ? "mono" : "hand" });
+        // 逐行错开出现；系数保证最后一行也能走到 1（之前最后一行只到 0.85，字被截在半截）
+        const li = clamp01(q * 2 - 0.25 - i * 0.2);
+        check(ctx, 68, 736 + i * 52, 26, li);
+        text(ctx, l, 110, 758 + i * 52, { size: 32, p: li, font: i === 2 ? "mono" : "hand" });
       });
     }
   },
@@ -288,7 +290,7 @@ const data: Scene = {
     box(ctx, 1260, 330, 480, 420, q, { width: 2.8, seed: 120, color: C.green }, "rgba(255,255,255,0.55)", 14);
     text(ctx, "写操作门控", 1500, 400, { size: 36, align: "center", p: q });
     text(ctx, "27 / 33", 1500, 560, { size: 110, align: "center", p: clamp01(q * 1.3 - 0.2), weight: 700, color: C.green });
-    text(ctx, "条标定用例判对", 1500, 640, { size: 30, align: "center", p: clamp01(q * 1.3 - 0.4), color: C.soft });
+    text(ctx, "条标定用例判对", 1500, 640, { size: 30, align: "center", p: clamp01(q * 1.5 - 0.4), color: C.soft });
     text(ctx, "* 节点上用真实 JEV 跑出，eval/ 可复现", 180, 900, { size: 28, p: s.p(1, 1.5, 0.8), color: C.soft });
   },
 };
