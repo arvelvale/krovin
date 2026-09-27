@@ -11,9 +11,10 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
-const SCRIPT = JSON.parse(fs.readFileSync(path.join(ROOT, "src/script.json"), "utf8"));
+// SCRIPT / OUT 可换：宣传片用 SCRIPT=src/promo/script.json OUT=public/promo-audio
+const SCRIPT = JSON.parse(fs.readFileSync(path.resolve(ROOT, process.env.SCRIPT || "src/script.json"), "utf8"));
 const CACHE = path.join(ROOT, ".tts-cache");
-const OUT = path.join(ROOT, "public/audio");
+const OUT = path.resolve(ROOT, process.env.OUT || "public/audio");
 const VOICE = process.env.VOICE || SCRIPT.voice;
 const BASE = process.env.STEPFUN_BASE || "https://api.stepfun.com/step_plan/v1";
 const RATE = 24000;
@@ -117,7 +118,7 @@ async function main() {
   // 压成 mp3 放进 public（wav 太大，只留在缓存里）
   execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-i", wav, "-ac", "1", "-b:a", "64k", path.join(OUT, "narration.mp3")]);
   fs.writeFileSync(path.join(OUT, "manifest.json"), JSON.stringify(manifest, null, 2));
-  console.log(`完成：总长 ${manifest.total.toFixed(1)} 秒 → public/audio/narration.mp3 + manifest.json`);
+  console.log(`完成：总长 ${manifest.total.toFixed(1)} 秒 → ${path.relative(ROOT, OUT)}/narration.mp3 + manifest.json`);
 }
 
 main().catch((e) => { console.error(e.message); process.exit(1); });

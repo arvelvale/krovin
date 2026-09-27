@@ -6,12 +6,13 @@
 历史提交（虚构作者，日期回填）：
   09-20 小林  初始化 tinyledger：add / list 命令
   09-22 阿泽  补 9/22 开发日志
-  09-23 周周  约定新增：金额不得用 float 累加（周会决定）
+  （16 小时前）周周  约定新增：金额不得用 float 累加（周会决定；日期回填为生成时的 16 小时前）
 故意保留的问题：store.py 里金额仍是 float 累加（周会纪要里的 bug），CSV 导出和月度汇总还没做。
 """
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timedelta, timezone
 import os
 import shutil
 import stat
@@ -27,7 +28,8 @@ MONEY_RULE = "\n## 金额\n9. 金额计算不得用 float 累加，统一按\"�
 COMMITS = [
     ("小林", "xiaolin@example.com", "2026-09-20T15:10:00+08:00", "初始化 tinyledger：add / list 命令"),
     ("阿泽", "aze@example.com", "2026-09-22T21:40:00+08:00", "补 9/22 开发日志"),
-    ("周周", "zhouzhou@example.com", "2026-09-23T18:05:00+08:00", "约定新增：金额不得用 float 累加（周会决定）"),
+    # 日期在生成时回填为"16 小时前"：站会简报按"最近一天的提交"取材，评审哪天重置都能看到这条（周会本身在 9/23）
+    ("周周", "zhouzhou@example.com", None, "约定新增：金额不得用 float 累加（周会决定）"),
 ]
 
 
@@ -41,6 +43,8 @@ def git(cwd: Path, *args: str, env: dict | None = None) -> str:
 
 def commit(dest: Path, idx: int) -> str:
     name, email, when, msg = COMMITS[idx]
+    if when is None:
+        when = (datetime.now(timezone(timedelta(hours=8))) - timedelta(hours=16)).isoformat(timespec="seconds")
     env = {"GIT_AUTHOR_NAME": name, "GIT_AUTHOR_EMAIL": email, "GIT_AUTHOR_DATE": when,
            "GIT_COMMITTER_NAME": name, "GIT_COMMITTER_EMAIL": email, "GIT_COMMITTER_DATE": when}
     git(dest, "add", "-A")
