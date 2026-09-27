@@ -47,12 +47,18 @@ def main() -> int:
     page = OUT / "评委使用指南.html"
     page.write_text(html, encoding="utf-8")
     pdf = OUT / "评委使用指南.pdf"
-    if pdf.exists():
-        pdf.unlink()
+    tmp = OUT / "评委使用指南.tmp.pdf"
+    tmp.unlink(missing_ok=True)
     subprocess.run([EDGE, "--headless=new", "--disable-gpu", "--no-pdf-header-footer", "--no-first-run",
-                    f"--print-to-pdf={pdf}", page.as_uri()], check=False, capture_output=True, timeout=120)
-    if not pdf.exists() or pdf.stat().st_size < 50_000:
+                    f"--print-to-pdf={tmp}", page.as_uri()], check=False, capture_output=True, timeout=120)
+    if not tmp.exists() or tmp.stat().st_size < 50_000:
         sys.exit("PDF 没有生成成功（检查 Edge 路径：EDGE_PATH）")
+    try:
+        os.replace(tmp, pdf)
+    except PermissionError:  # 旧 PDF 正开在阅读器里
+        pdf = OUT / "评委使用指南（新）.pdf"
+        os.replace(tmp, pdf)
+        print("注意：旧的 评委使用指南.pdf 正被其他程序打开，没法覆盖；新版另存为下面这个文件，关掉阅读器后可重跑本脚本。")
     print(f"地址：{url}")
     print(f"口令：已填入（来自 .env，长度 {len(token)}）")
     print(f"联系人：{contact}")

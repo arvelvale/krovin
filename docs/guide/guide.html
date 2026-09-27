@@ -28,8 +28,8 @@
   code { background: var(--soft); border-radius: 3px; padding: 0 3px; }
   .muted { color: var(--ink-3); }
   img.shot { width: 100%; border: 1px solid var(--line); border-radius: 6px; display: block; margin: 2mm 0 1.5mm; }
-  img.shot.sm { width: 46%; }
-  figure.fig.small img.shot { width: 74%; margin-inline: auto; }
+  img.shot.sm { width: 36%; }
+  figure.fig.small img.shot { width: 58%; margin-inline: auto; }
   figure.fig.small .cap { text-align: center; }
   figure.fig { margin: 0; break-inside: avoid; }
   figure.fig.narrow img.shot { width: 88%; margin-inline: auto; }
@@ -113,6 +113,13 @@
 <section class="page">
   <h2><span class="no">01</span>三分钟上手</h2>
   <p class="lead">不需要安装任何东西，也不需要自己的 API Key，更不需要在本机启动什么。模型、决策服务和演示数据都在我们的 DGX Spark 节点上，由团队全程维持在线。</p>
+  <div class="tip info" style="margin:0 0 4mm">
+    <b>开始之前（由参赛团队完成，你不需要操作）</b><br />
+    评审期间，我们在团队电脑上运行启动脚本 <code>serve-for-judges.bat</code>：先自检本机代理、JEV / Linear 连通和 SSH，
+    再在 DGX Spark 节点上启动面板，并建立一条反向隧道——节点所在网络访问不了境外的 <b>JEV</b> 和 <b>Linear</b>，要经团队电脑中转；
+    <b>阶跃 step-5</b>、本地 Nemotron / Qwen 由节点直连。这一步需要节点账号和各服务的 Key，所以由我们完成并全程保持在线、断线自动重连。<br />
+    <b>怎么确认它在运行：</b>能打开登录页，登录后左下角「主力、难题、JEV 决策、Linear」亮绿灯（备用亮蓝灯表示待命）。
+  </div>
   <ol class="steps">
     <li><b>打开地址，输入访问口令。</b>看到下面这个登录页，把封面上的口令粘贴进去，回车。
       <img class="shot sm" src="img/login.jpg" alt="登录页" /></li>
@@ -123,7 +130,6 @@
       大约 30 秒后会得到一段可以直接念的站会简报。</li>
     <li><b>看右侧「决策轨迹」。</b>这一轮 agent 做的每个结构化决策——选了哪个技能、概率多少、交给哪个模型、调用了哪些工具——都按顺序列在这里。这是这个作品的核心，详见第 04 节。</li>
   </ol>
-  <figure class="fig small"><img class="shot" src="img/overview.jpg" alt="主界面" /><p class="cap">主界面：左侧会话与服务状态，中间对话，右侧决策轨迹。</p></figure>
 </section>
 
 <!-- ========== 02 推荐体验路线 ========== -->
