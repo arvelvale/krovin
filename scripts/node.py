@@ -4,6 +4,8 @@
   python scripts/node.py run "python3 -m agent doctor"
   python scripts/node.py run --no-tunnel "nvidia-smi"
   python scripts/node.py serve                # 在节点上起 Web 面板，并把本机 127.0.0.1:9000 转发过去
+  python scripts/node.py preflight            # 评审前自检（代理、JEV / Linear、SSH、口令、前端）
+  python scripts/node.py serve --public --keep-alive   # 评审期间常驻：断线重连、不让电脑睡眠（或双击 serve-for-judges.bat）
 
 隧道：节点 127.0.0.1:<随机端口> → SSH → 本机代理（从 HTTPS_PROXY 读，默认 127.0.0.1:10090）。
 节点直连不了境外（JEV、Linear），agent 进程靠 https_proxy 走这条隧道；StepFun 与本地模型直连不受影响。
@@ -102,23 +104,35 @@ def open_tunnel(client: paramiko.SSHClient) -> int:
         lambda ch, origin, dest: threading.Thread(target=_pipe, args=(ch, target), daemon=True).start())
 
 
-def forward_local(client: paramiko.SSHClient, local_port: int, remote_port: int) -> None:
-    """本机 127.0.0.1:local_port → 节点 127.0.0.1:remote_port（相当于 ssh -L）。"""
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind(("127.0.0.1", local_port))
-    server.listen(32)
+class LocalForward:
+    """本机 127.0.0.1:local_port → 节点 127.0.0.1:remote_port（相当于 ssh -L）。
+    端口只 bind 一次；SSH 重连后把新连接赋给 .client，转发继续可用。"""
 
-    def accept_loop():
+    def __init__(self, client: paramiko.SSHClient, local_port: int, remote_port: int):
+        self.client = client
+        self.remote_port = remote_port
+        self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.server.bind(("127.0.0.1", local_port))
+        self.server.listen(32)
+        threading.Thread(target=self._accept_loop, daemon=True).start()
+
+    def _accept_loop(self) -> None:
         while True:
             try:
-                sock, peer = server.accept()
-                chan = client.get_transport().open_channel("direct-tcpip", ("127.0.0.1", remote_port), peer)
+                sock, peer = self.server.accept()
+            except OSError:
+                continue
+            try:
+                chan = self.client.get_transport().open_channel("direct-tcpip", ("127.0.0.1", self.remote_port), peer)
             except Exception:
+                sock.close()  # SSH 正在重连：这次请求失败，浏览器重试即可
                 continue
             threading.Thread(target=_bridge, args=(sock, chan), daemon=True).start()
 
-    threading.Thread(target=accept_loop, daemon=True).start()
+
+def forward_local(client: paramiko.SSHClient, local_port: int, remote_port: int) -> LocalForward:
+    return LocalForward(client, local_port, remote_port)
 
 
 def _bridge(sock: socket.socket, chan) -> None:
@@ -201,6 +215,137 @@ def sync() -> None:
         client.close()
 
 
+def _port_open(host: str, port: int, timeout: float = 2.0) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _via_proxy(url: str, timeout: float = 8.0) -> str | None:
+    """经本机代理访问境外服务，能拿到任何 HTTP 响应就算通（返回 None），否则返回原因。"""
+    import urllib.error
+    import urllib.request
+    host, port = local_proxy()
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({"https": f"http://{host}:{port}"}))
+    why = ""
+    for _ in range(2):  # 代理偶尔第一下连接失败，重试一次再判不通，免得评审当天误报
+        try:
+            opener.open(url, timeout=timeout)
+            return None
+        except urllib.error.HTTPError:
+            return None  # 400 / 401 / 404 也说明网络是通的
+        except Exception as exc:  # noqa: BLE001
+            why = str(getattr(exc, "reason", exc))[:80]
+    return why
+
+
+def preflight() -> bool:
+    """评审前自检：本机这一侧的条件都满足，节点上的 agent 才能用上 JEV 和 Linear。"""
+    ok = True
+
+    def line(good: bool, what: str, hint: str = "") -> None:
+        nonlocal ok
+        ok = ok and good
+        tail = "" if good or not hint else "\n    → " + hint
+        print(("✓ " if good else "✗ ") + what + tail, flush=True)
+
+    line((ROOT / "登录信息表.xlsx").exists(), "登录信息表在仓库根目录", "从组委会材料里放回 登录信息表.xlsx")
+    token = ""
+    env_file = ROOT / ".env"
+    if env_file.exists():
+        for raw in env_file.read_text(encoding="utf-8").splitlines():
+            if raw.startswith("AGENT_WEB_TOKEN="):
+                token = raw.split("=", 1)[1].strip()
+    line(bool(token), ".env 里固定了面板口令 AGENT_WEB_TOKEN", "不固定的话每次启动随机生成，评委手里的口令会失效")
+    line((ROOT / "web" / "dist" / "index.html").exists(), "前端已构建（web/dist）", "cd web && npm install && npm run build")
+    host, port = local_proxy()
+    has_proxy = _port_open(host, port)
+    line(has_proxy, f"本机代理在监听 {host}:{port}", "打开 mihomo / Clash（节点经它访问 JEV 和 Linear）")
+    if has_proxy:
+        for name, url in (("JEV", "https://api.typesafe.ai/"), ("Linear", "https://api.linear.app/graphql")):
+            why = _via_proxy(url)
+            line(why is None, f"经代理能连上 {name}", f"代理规则没放行，或网络不通：{why}")
+    try:
+        connect().close()
+        line(True, "SSH 能连上节点（6006）")
+    except Exception as exc:  # noqa: BLE001
+        line(False, "SSH 能连上节点（6006）", str(exc)[:120])
+    return ok
+
+
+def _keep_awake(on: bool) -> None:
+    """Windows：本进程运行期间不让系统睡眠（进程退出即恢复，不改任何系统设置）。合盖是否睡眠仍由电源设置决定。"""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    es_continuous, es_system_required = 0x80000000, 0x00000001
+    ctypes.windll.kernel32.SetThreadExecutionState(es_continuous | (es_system_required if on else 0))
+
+
+def _watch(url: str | None, stop: threading.Event) -> None:
+    """每分钟看一眼：本机代理、公网入口。状态变化才打印，避免刷屏。"""
+    import time
+    host, port = local_proxy()
+    last: dict[str, bool] = {}
+    while not stop.wait(60):
+        now = {"本机代理": _port_open(host, port)}
+        if url:
+            u = urlparse(url)
+            now["公网入口"] = _port_open(u.hostname or "", u.port or 80, timeout=5)
+        for k, v in now.items():
+            if last.get(k) != v:
+                note = "" if v or k != "本机代理" else "（JEV / Linear 会降级：写操作全改为人工确认）"
+                print(f"[{time.strftime('%H:%M')}] {k}：{'正常' if v else '不通'}{note}", flush=True)
+        last = now
+
+
+def serve_forever(port: int, local_port: int, public: bool, extra: str) -> int:
+    """评审期间用：SSH 断了自动重连，面板随之重启；登录态已落盘，评委不用重新登录。Ctrl+C 结束。"""
+    import time
+    host = "0.0.0.0" if public else "127.0.0.1"
+    url = public_url(port) if public else None
+    if url:
+        extra += f" --public-url {shlex.quote(url)}"
+    _keep_awake(True)
+    stop = threading.Event()
+    threading.Thread(target=_watch, args=(url, stop), daemon=True).start()
+    fwd: LocalForward | None = None
+    delay = 5
+    try:
+        while True:
+            try:
+                client = connect()
+            except Exception as exc:  # noqa: BLE001
+                print(f"[{time.strftime('%H:%M:%S')}] 连不上节点：{str(exc)[:100]}，{delay} 秒后重试", flush=True)
+                time.sleep(delay)
+                delay = min(delay * 2, 60)
+                continue
+            delay = 5
+            if fwd is None:
+                fwd = forward_local(client, local_port, port)
+                print(f"本机访问：http://127.0.0.1:{local_port}" + (f"　公网访问：{url}" if url else ""), flush=True)
+            else:
+                fwd.client = client
+            print(f"[{time.strftime('%H:%M:%S')}] 已连上节点，启动面板（这个窗口不要关）", flush=True)
+            started = time.monotonic()
+            try:
+                run(f"python3 -m agent serve --host {host} --port {port}{extra}", tunnel=True, pty=True, client=client)
+            except Exception as exc:  # noqa: BLE001  网络断开时 recv 可能直接抛异常
+                print(f"[{time.strftime('%H:%M:%S')}] 连接异常：{str(exc)[:100]}", flush=True)
+            lived = time.monotonic() - started
+            wait = 5 if lived > 30 else 20  # 刚起就挂说明有别的问题，放慢一点
+            print(f"[{time.strftime('%H:%M:%S')}] 连接断开（运行了 {lived / 60:.0f} 分钟），{wait} 秒后自动重连", flush=True)
+            time.sleep(wait)
+    except KeyboardInterrupt:
+        print("已停止。节点上的面板随 SSH 断开一起退出。", flush=True)
+        return 0
+    finally:
+        stop.set()
+        _keep_awake(False)
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -213,10 +358,16 @@ def main() -> int:
     sv.add_argument("--local-port", type=int, default=9000, help="本机转发端口")
     sv.add_argument("--public", action="store_true", help="监听 0.0.0.0（公网映射端口，必须有口令）")
     sv.add_argument("--dev-no-auth", action="store_true", help="开发用免登录（不能和 --public 一起用）")
+    sv.add_argument("--keep-alive", action="store_true", help="评审用：断线自动重连、运行期间不让电脑睡眠")
+    sub.add_parser("preflight", help="评审前自检：代理、JEV / Linear 连通、SSH、口令、前端构建")
     args = p.parse_args()
+    if args.cmd == "preflight":
+        return 0 if preflight() else 1
     if args.cmd == "sync":
         sync()
         return 0
+    if args.cmd == "serve" and args.keep_alive:
+        return serve_forever(args.port, args.local_port, args.public, " --dev-no-auth" if args.dev_no_auth else "")
     if args.cmd == "serve":
         client = connect()
         forward_local(client, args.local_port, args.port)
