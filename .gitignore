@@ -13,3 +13,10 @@ __pycache__/
 *.pyc
 .pytest_cache/
 *.egg-info/
+
+# 参考用的第三方源码（本地阅读用，不入库、不同步到节点）
+reference/kimi-code-main/
+reference/fast-jev-compaction-main/
+
+# 带访问口令的评委材料（make_guide.py 生成）
+deliverables/
