@@ -408,3 +408,14 @@ window.addEventListener("dgx:unauthorized", () => {
   closeStream();
   update((s) => (s.authed = false));
 });
+
+export async function resetDemo(): Promise<void> {
+  if (!window.confirm("把演示仓库恢复到初始状态？之前的改动和提交都会清掉（只影响演示沙盒）。")) return;
+  try {
+    const r = await api.resetDemo();
+    toast(`演示仓库 ${r.workspace} 已恢复到初始状态`);
+    void loadStatus();
+  } catch (err) {
+    toast(err instanceof ApiError ? err.message : "重置失败，稍后再试一次", "error");
+  }
+}

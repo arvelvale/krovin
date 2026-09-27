@@ -252,3 +252,26 @@ def test_corrupt_session_file_is_ignored(cfg):
     path.write_text("{坏掉的", encoding="utf-8")
     s = srv.WebSessions(path, TOKEN)
     assert not s.valid("anything") and s.valid(s.create())
+
+
+# ---------------- 重置演示仓库 ----------------
+def test_reset_demo_only_for_sandbox(running, cfg, tmp_path, monkeypatch):
+    app, port = running
+    cookie = login(port)
+    # conftest 的工作区在 tmp_path/ws，不在 data_dir/workspace 下：必须拒绝，绝不能删
+    assert (cfg.workspace / ".git").exists()
+    status, body, _ = call(port, "POST", "/api/demo/reset", {}, cookie=cookie)
+    assert status == 409 and "不是演示沙盒" in body["error"] and (cfg.workspace / ".git").exists()
+    assert call(port, "GET", "/api/status", cookie=cookie)[1]["workspace_resettable"] is False
+
+
+def test_reset_demo_rebuilds_sandbox(running, cfg):
+    app, port = running
+    cookie = login(port)
+    cfg.workspace = cfg.data_dir / "workspace" / "tinyledger"
+    status, body, _ = call(port, "POST", "/api/demo/reset", {}, cookie=cookie)
+    assert status == 200 and body["workspace"] == "tinyledger"
+    assert (cfg.workspace / "tinyledger" / "store.py").exists() and (cfg.workspace / ".git").exists()
+    (cfg.workspace / "tinyledger" / "store.py").write_text("# 评委改坏了\n", encoding="utf-8")
+    assert call(port, "POST", "/api/demo/reset", {}, cookie=cookie)[0] == 200
+    assert "float" in (cfg.workspace / "tinyledger" / "store.py").read_text(encoding="utf-8")  # 回到带 bug 的起点

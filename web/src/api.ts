@@ -56,6 +56,7 @@ export const api = {
   memory: (status: "active" | "pending") => request<MemoryItem[]>("GET", `/api/memory?status=${status}`),
   approveMemory: (id: string) => request<{ ok: boolean }>("POST", `/api/memory/${encodeURIComponent(id)}/approve`, {}),
   forgetMemory: (id: string) => request<{ ok: boolean }>("DELETE", `/api/memory/${encodeURIComponent(id)}`),
+  resetDemo: () => request<{ ok: boolean; workspace: string }>("POST", "/api/demo/reset", {}),
   models: () => request<ModelsView>("GET", "/api/models"),
   setSlots: (slots: Partial<Record<Slot, SlotRef>>) => request<ModelsView>("PUT", "/api/models/slots", slots),
   saveProvider: (id: string, body: ProviderInput) =>

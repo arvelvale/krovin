@@ -76,6 +76,7 @@ export interface Status {
   services: Record<"local" | "backup" | "cloud" | "jev" | "linear", Service>;
   workspace: string;
   workspace_ready: boolean;
+  workspace_resettable?: boolean;
   skills: { name: string; description: string; model: string; writes: string[] }[];
   skill_errors: string[];
 }

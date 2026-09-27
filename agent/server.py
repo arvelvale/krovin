@@ -16,6 +16,7 @@
   GET    /api/memory?status=active|pending
   POST   /api/memory/<id>/approve    DELETE /api/memory/<id>
   POST   /api/asr?format=wav               请求体是音频字节 → {text}
+  POST   /api/demo/reset                   重建演示仓库（仅限 var/workspace/ 下的沙盒；有对话进行中时拒绝）
   GET    /api/models                       模型设置（供应商、分工位、预设；不含 Key 原文）
   PUT    /api/models/slots                 {local|backup|cloud: {provider, model}}
   PUT    /api/models/providers/<id>        {name, base_url, api_key?, private, use_proxy, models:[{name, max_tokens}]}
@@ -35,6 +36,7 @@ import os
 import queue
 import re
 import secrets
+import subprocess
 import sys
 import threading
 import time
@@ -311,11 +313,31 @@ class App:
             },
             "workspace": cfg.workspace.name,
             "workspace_ready": (cfg.workspace / ".git").exists(),
+            "workspace_resettable": self.demo_sandbox() is not None,
             "skills": [{"name": s.name, "description": s.description, "model": s.model,
                         "writes": [t for t in s.allowed_tools if reg.get(t).permission.value != "read"]}
                        for s in skills],
             "skill_errors": errors,
         }
+
+    def demo_sandbox(self) -> Path | None:
+        """只有演示沙盒（<data_dir>/workspace/ 下）才允许重置；指向真实仓库时返回 None。"""
+        ws, box = self.cfg.workspace.resolve(), (self.cfg.data_dir / "workspace").resolve()
+        return ws if box in ws.parents else None
+
+    def reset_demo(self) -> str:
+        """重建演示仓库（删掉重来）。评委照着文档修 DAY-298 之前点一下，每个人看到的都是同一个起点。"""
+        ws = self.demo_sandbox()
+        if ws is None:
+            raise RuntimeError("当前工作区不是演示沙盒，不允许重置")
+        if any(s.busy for s in self.live.values()):
+            raise RuntimeError("还有对话在进行，等它结束再重置")
+        proc = subprocess.run([sys.executable, str(ROOT / "demo" / "seed" / "make_workspace.py"), "--force",
+                               "--dest", str(ws)], capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", timeout=90)
+        if proc.returncode != 0:
+            raise RuntimeError("重置失败：" + (proc.stderr or proc.stdout).strip()[-200:])
+        return ws.name
 
     def reload_models(self) -> None:
         """面板里改了模型设置：重新套到运行配置上。新建的会话生效，进行中的会话继续用原来的模型。"""
@@ -471,6 +493,11 @@ def make_handler(app: App):
                 return self._sessions(method, parts[1:])
             if head == "memory":
                 return self._memory(method, parts[1:], query)
+            if head == "demo" and parts[1:] == ["reset"] and method == "POST":
+                try:
+                    return self._json({"ok": True, "workspace": app.reset_demo()})
+                except RuntimeError as exc:
+                    return self._error(409, str(exc))
             if head == "models":
                 return self._models(method, parts[1:])
             if head == "asr" and method == "POST":

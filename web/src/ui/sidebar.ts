@@ -1,6 +1,6 @@
-import { Brain, CircleDot, FolderGit2, LogOut, Plus, Radio, SlidersHorizontal, X } from "lucide";
+import { Brain, CircleDot, FolderGit2, LogOut, Plus, Radio, RotateCcw, SlidersHorizontal, X } from "lucide";
 import { when } from "../format";
-import { createSession, logout, openSession, setMemoryTab, state, update } from "../store";
+import { createSession, logout, openSession, resetDemo, setMemoryTab, state, update } from "../store";
 import { h, icon } from "./dom";
 
 const SERVICE_ROWS: { key: "local" | "backup" | "cloud" | "jev" | "linear"; label: string }[] = [
@@ -76,6 +76,9 @@ export function renderSidebar(): HTMLElement {
         })),
       st && h("div", { class: "workspace", title: "agent 操作的仓库" },
         icon(st.workspace_ready ? FolderGit2 : CircleDot, 14), st.workspace,
-        !st.workspace_ready && h("span", { class: "warn-text" }, "未生成")),
+        !st.workspace_ready && h("span", { class: "warn-text" }, "未生成"),
+        st.workspace_resettable && h("button", {
+          class: "link reset", title: "把演示仓库恢复到初始状态（带着 DAY-298 的 bug）", onclick: () => void resetDemo(),
+        }, icon(RotateCcw, 12), "重置")),
       h("button", { class: "side-link subtle", onclick: () => void logout() }, icon(LogOut, 14), "退出登录")));
 }
