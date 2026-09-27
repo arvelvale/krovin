@@ -2,3 +2,4 @@ node_modules/
 dist/
 .tts-cache/
 out/
+public/rec/

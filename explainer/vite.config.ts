@@ -4,5 +4,9 @@ import { defineConfig } from "vite";
 export default defineConfig({
   base: "./",
   server: { port: 5180 },
-  build: { outDir: "dist", emptyOutDir: true, chunkSizeWarningLimit: 900 },
+  build: {
+    outDir: "dist", emptyOutDir: true, chunkSizeWarningLimit: 900,
+    // 两个页面：讲解片 index.html、介绍视频 promo.html（真实界面录屏）
+    rollupOptions: { input: { index: "index.html", promo: "promo.html" } },
+  },
 });

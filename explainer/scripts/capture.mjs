@@ -10,6 +10,8 @@ import path from "node:path";
 
 const [mode, out, arg] = process.argv.slice(2);
 const URL_ = process.env.URL || "http://127.0.0.1:4174/?clean";
+// 介绍视频：URL=http://127.0.0.1:5180/promo.html?clean AUDIO=public/promo-audio（录屏素材大，用 dev 服务器直接读 public/）
+const AUDIO = path.resolve(process.env.AUDIO || "public/audio");
 const EDGE = process.env.EDGE_PATH || "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe";
 if (!mode || !out) {
   console.error("用法：node scripts/capture.mjs stills|scenes|video <输出> [参数]");
@@ -55,7 +57,7 @@ try {
   const shot = async (t, file) => {
     const type = file.endsWith(".png") ? "image/png" : "image/jpeg";
     // 一帧 PNG 有 6 MB（纸纹噪点多），CDP 单条消息太大时 Node 的 WebSocket 会静默卡住，所以分块取回
-    const len = await evaluate(`(window.__buf = window.__frame(${t}, "${type}")).length`);
+    const len = await evaluate(`(async () => (window.__buf = await window.__frame(${t}, "${type}")).length)()`);
     const CHUNK = 1 << 20;
     let url = "";
     for (let off = 0; off < len; off += CHUNK) url += await evaluate(`window.__buf.slice(${off}, ${off + CHUNK})`);
@@ -71,7 +73,7 @@ try {
     let times;
     if (mode === "stills") times = arg.split(",").map(Number);
     else {
-      const m = JSON.parse(fs.readFileSync(path.resolve("public/audio/manifest.json"), "utf8"));
+      const m = JSON.parse(fs.readFileSync(path.join(AUDIO, "manifest.json"), "utf8"));
       times = m.scenes.flatMap((s) => [(s.start + s.end) / 2, s.end - 1.25]);
     }
     for (const t of times) {
@@ -89,7 +91,7 @@ try {
       if (i % (fps * 10) === 0) console.log(`  ${(i / fps).toFixed(0)}s / ${total.toFixed(0)}s`);
     }
     execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-framerate", String(fps), "-i", path.join(frames, "f%06d.jpg"),
-      "-i", path.resolve("public/audio/narration.mp3"), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", "-c:a", "aac", "-b:a", "128k", "-shortest", out]);
+      "-i", path.join(AUDIO, "narration.mp3"), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", "-c:a", "aac", "-b:a", "128k", "-shortest", out]);
     fs.rmSync(frames, { recursive: true, force: true });
     console.log(`已导出 ${out}`);
   }
