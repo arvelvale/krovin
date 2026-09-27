@@ -30,8 +30,8 @@ TOOLS = [
          "中间读过的文件不会进你的上下文。适合：要读很多文件才能回答的问题、几个互不相关的问题同时查。"
          "不适合：一两个工具调用就能查到的事（自己查更省），以及任何需要改文件的事（子助手不能写）。",
          params({"tasks": {"type": "array", "items": {"type": "object", "properties": {
-             "description": {"type": "string", "description": "3–10 个字的任务名，如「查金额计算路径」"},
-             "prompt": {"type": "string", "description": "完整任务：要回答什么、从哪里查、结论要包含什么。子助手看不到对话，背景写全"},
+             "description": {"type": "string", "description": "3–10 个字的中文任务名，如「查金额计算路径」"},
+             "prompt": {"type": "string", "description": "完整任务（用中文写）：要回答什么、从哪里查、结论要包含什么。子助手看不到对话，背景写全"},
          }, "required": ["description", "prompt"]}}}, ["tasks"]),
          Permission.READ, delegate),
 ]
