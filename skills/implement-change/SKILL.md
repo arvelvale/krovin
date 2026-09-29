@@ -10,6 +10,7 @@ allowed-tools:
   - edit_file
   - run_command
   - run_in_sandbox
+  - browser_check
   - linear_update_issue
   - git_branch
   - git_commit

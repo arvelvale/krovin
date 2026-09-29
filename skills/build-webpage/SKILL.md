@@ -9,6 +9,7 @@ allowed-tools:
   - write_file
   - edit_file
   - run_in_sandbox
+  - browser_check
   - linear_create_issue
   - linear_update_issue
   - fetch_webpage
@@ -48,6 +49,7 @@ tags: [dev-flow, frontend]
    - 只允许这些 CDN：esm.sh、unpkg.com、cdn.jsdelivr.net、cdnjs.cloudflare.com。图片用 data URI 或 emoji，不要引外链图片。
 3. 游戏要点：`requestAnimationFrame` 或固定间隔循环；键盘用 `keydown`（方向键 / WASD），同时给触屏提供按钮；显示分数与「重新开始」；`canvas` 要按 `devicePixelRatio` 处理清晰度。
 4. 写完先自检语法：原生脚本用 `run_in_sandbox` 跑 `node --check app.js`；使用打包工具的项目要运行构建命令。逻辑部分（碰撞、计分）可以抽成纯函数用 `node test.js` 验证。需要读公开网页资料时调用 `fetch_webpage`，不要在沙箱里直接 curl 未放行的站点。
+   然后用 `browser_check` 启动开发服务或静态服务，检查实际页面、关键按钮和截图。工具会把截图交给视觉模型；发现错误后修复并重新检查。构建通过不能替代浏览器验证。
 5. 用户看效果：**不要说「已经运行」**，你没有浏览器。告诉用户：左栏「工作区与文件」→ 找到当前工作区「查看文件」→ 点顶部的「预览」，也可以「新窗口打开」。
 
 ## 输出契约

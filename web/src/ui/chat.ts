@@ -1,13 +1,40 @@
 import {
-  ArrowUpRight, Bot, Check, ChevronRight, Cloud, Code2, Cpu, GitPullRequest, ListChecks, LoaderCircle, Mic, ShieldAlert, Blocks, Sun, TriangleAlert, X,
+  ArrowUpRight, Bot, Check, ChevronRight, Cloud, Code2, Copy, Cpu, GitPullRequest, ListChecks, LoaderCircle, Mic, ShieldAlert, Blocks, Sun, TriangleAlert, X,
 } from "lucide";
 import { ms, PERMISSION_LABEL, TIER_LABEL } from "../format";
-import { answerConfirm, createSession, selectTurn, sortedTurns, state, type Current } from "../store";
+import { api } from "../api";
+import { answerConfirm, createSession, selectTurn, sortedTurns, state, toast, type Current } from "../store";
 import type { ConfirmItem, Turn } from "../types";
 import { h, icon } from "./dom";
 import { artifactCard, turnArtifacts } from "./artifact";
 import { logoMark } from "./logo";
 import { markdown } from "./markdown";
+
+/** 复制用户消息。面板走 http 隧道时 navigator.clipboard 不可用，退回老式 execCommand */
+async function copyText(text: string): Promise<void> {
+  const legacy = () => {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+  };
+  try {
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+    else legacy();
+    toast("已复制");
+  } catch {
+    try {
+      legacy();
+      toast("已复制");
+    } catch {
+      toast("复制失败了，手动选一下文字吧", "error");
+    }
+  }
+}
 
 const SUGGESTIONS = [
   { title: "准备站会", hint: "把昨天的进展，整理成今天的起点", icon: Sun, color: "amber", text: "待会开站会，帮我理一下昨天干了啥今天干啥" },
@@ -77,7 +104,7 @@ function activityItem(t: Turn, e: Turn["events"][number], running: boolean): HTM
           : h("span", { class: "activity-detail" }, "这个模型没有返回思考正文。"));
     }
     case "tool.gate":
-      title = `工具判断：${d.tool} · ${d.decision === "confirm" ? "等待确认" : d.decision === "deny" ? (d.auto ? "JEV 自动拦截" : "未放行") : d.auto ? "JEV 自动放行" : "已放行"}`;
+      title = `工具判断：${d.tool} · ${d.decision === "confirm" ? "等待确认" : d.decision === "deny" ? (d.auto ? "JEV 自动拦截" : "未放行") : String(d.reason ?? "").startsWith("Bypass") ? "Bypass 放行" : d.auto ? "JEV 自动放行" : "已放行"}`;
       detail = String(d.summary || d.reason || "");
       break;
     case "tool.call":
@@ -194,8 +221,18 @@ function confirmCard(c: ConfirmItem): HTMLElement {
 function turnView(cur: Current, t: Turn, running: boolean): HTMLElement {
   const confirms = [...cur.confirms.values()].filter((c) => c.turn === t.n);
   return h("section", { class: "turn", dataset: { turn: String(t.n) } },
-    t.input && h("div", { class: "msg user" }, h("div", { class: "bubble" },
-      t.source === "voice" && h("span", { class: "voice-tag", title: "语音输入" }, icon(Mic, 12)), t.input)),
+    (t.input || t.images?.length) && h("div", { class: "msg user" },
+      h("div", { class: "bubble" },
+        t.source === "voice" && h("span", { class: "voice-tag", title: "语音输入" }, icon(Mic, 12)),
+        t.images?.length && h("div", { class: "message-images" }, t.images.map((id) =>
+          h("a", { attrs: { href: api.imageUrl(cur.id, id), target: "_blank", rel: "noopener noreferrer" } },
+            h("img", { attrs: { src: api.imageUrl(cur.id, id), alt: "用户上传的图片", loading: "lazy" } })))),
+        t.input),
+      h("div", { class: "msg-actions" },
+        h("button", {
+          class: "icon-btn copy-btn", attrs: { type: "button", title: "复制这条消息", "aria-label": "复制这条消息" },
+          onclick: () => void copyText(t.input),
+        }, icon(Copy, 13)))),
     decisionStrip(t),
     activityCard(t, running),
     confirms.map(confirmCard),
@@ -237,7 +274,9 @@ export function renderMessages(): HTMLElement {
   return h("div", { class: "messages-inner" },
     turns.map((t) => turnView(cur, t, cur.busy && t.n === lastN && !t.done)),
     cur.pendingInput && h("section", { class: "turn" },
-      h("div", { class: "msg user" }, h("div", { class: "bubble" }, cur.pendingInput.text)),
+      h("div", { class: "msg user" }, h("div", { class: "bubble" },
+        cur.pendingInput.images.length > 0 && h("div", { class: "message-images" }, cur.pendingInput.images.map((url) =>
+          h("img", { attrs: { src: url, alt: "用户上传的图片" } }))), cur.pendingInput.text)),
       h("div", { class: "progress" }, icon(LoaderCircle, 14, "spin"), "收到，正在准备")),
     cur.stream === "reconnecting" && h("div", { class: "banner" }, "和面板后端的连接断了，正在重连…"));
 }

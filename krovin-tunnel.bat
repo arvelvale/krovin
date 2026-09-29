@@ -9,6 +9,5 @@ echo   2. 本机 http://127.0.0.1:9000 到节点上面板的转发
 echo 不同步代码、不启动面板。面板第一次使用（或更新代码后）请先运行 krovin-panel.bat。
 echo 断线会自动重连；关掉这个窗口后 JEV / Linear 暂时不可用，聊天和改代码照常。
 echo.
-python scripts
-ode.py tunnel
+python scripts/node.py tunnel
 pause

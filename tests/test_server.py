@@ -8,6 +8,7 @@ import pytest
 
 from agent import server as srv
 from agent.kernel import Agent
+from agent.config import Endpoint
 
 from conftest import FakeDecision, FakeLLM, noul_ans, reply
 
@@ -45,7 +46,7 @@ def running(cfg, monkeypatch):
         clients = {"local": FakeLLM("local", [
             reply(calls=[("edit_file", {"path": "app.py", "old": "sum(xs)", "new": "sum(xs) or 0"})]),
             reply("改好了"),
-        ]), "backup": FakeLLM("backup"), "cloud": FakeLLM("cloud")}
+        ]), "backup": FakeLLM("backup"), "cloud": FakeLLM("cloud"), "vision": FakeLLM("vision")}
         agent = Agent(cfg_, decision=FakeDecision(gate_low), clients=clients, **kw)
         agent.router.healthy = lambda ep, ttl=60: True
         return agent
@@ -89,6 +90,35 @@ def test_auth_required(running):
     status, data, _ = call(port, "GET", "/api/status", cookie=cookie)
     assert status == 200 and {"local", "cloud", "jev", "linear"} <= set(data["services"])
     assert any(s["name"] == "implement-change" for s in data["skills"])
+
+
+def test_image_upload_turn_history_and_auth(running):
+    app, port = running
+    app.cfg.vision = Endpoint("vision", "http://127.0.0.1:2/v1", "qwen3.8:27b")
+    cookie = login(port)
+    sid = call(port, "POST", "/api/sessions", {"tier": "local"}, cookie=cookie)[1]["id"]
+    path = f"/api/sessions/{sid}/images"
+    png = b"\x89PNG\r\n\x1a\n" + b"test-image"
+    assert call(port, "POST", path, raw=png, ctype="image/png")[0] == 401
+    assert call(port, "POST", path, raw=b"invalid", ctype="image/png", cookie=cookie)[0] == 400
+    status, uploaded, _ = call(port, "POST", path, raw=png, ctype="image/png", cookie=cookie)
+    assert status == 201
+    image_id = uploaded["id"]
+    assert call(port, "GET", f"{path}/{image_id}")[0] == 401
+    assert call(port, "POST", f"/api/sessions/{sid}/turn", {"images": ["i-" + "0" * 32]}, cookie=cookie)[0] == 400
+    app.live[sid].agent.clients["vision"].script = [reply("我看到了图片")]
+    assert call(port, "POST", f"/api/sessions/{sid}/turn", {"images": [image_id]}, cookie=cookie)[0] == 202
+    for _ in range(1000):
+        if not app.live[sid].busy:
+            break
+        threading.Event().wait(0.01)
+    assert not app.live[sid].busy
+    hist = call(port, "GET", f"/api/sessions/{sid}", cookie=cookie)[1]
+    assert hist["messages"][0]["images"] == [image_id]
+    assert hist["events"][0]["data"]["images"] == [image_id]
+    received = app.live[sid].agent.clients["vision"].received
+    assert received and received[0][-1]["content"][1]["type"] == "image_url"
+    assert "base64" not in str(hist)
 
 
 def test_json_only_and_bad_ids(running):
@@ -157,6 +187,39 @@ def test_turn_with_web_confirmation(running, cfg):
     assert any(e["type"] == "turn.end" for e in hist["events"])
     status, listing, _ = call(port, "GET", "/api/sessions", cookie=cookie)
     assert listing[0]["id"] == sid and listing[0]["title"] == "把 total 改一下" and listing[0]["live"]
+
+
+def test_stop_turn_via_http(running, cfg):
+    """运行中点「停止」：确认卡按拒绝处理，轮次在步边界收尾，不再调用模型。"""
+    app, port = running
+    cookie = login(port)
+    sid = call(port, "POST", "/api/sessions", {"use_jev": True, "tier": "auto"}, cookie=cookie)[1]["id"]
+    calls = {"n": 0}
+    base_calls = len(app.live[sid].agent.clients["local"].received)
+
+    def on_event(kind, data):
+        if kind == "confirm":
+            # 确认卡弹出的这一刻用户点了「停止」：卡按拒绝，内核步边界收尾
+            status, body, _ = call(port, "POST", f"/api/sessions/{sid}/stop", {}, cookie=cookie)
+            assert status == 200 and body["stopped"] is True
+        if kind == "trace" and data["type"] == "llm.start":
+            calls["n"] += 1
+
+    threading.Timer(0.3, lambda: call(port, "POST", f"/api/sessions/{sid}/turn",
+                                      {"text": "把 total 改一下"}, cookie=cookie)).start()
+    events = read_sse(port, sid, cookie, {"turn_done"}, on_event)
+    done = dict(events)["turn_done"]
+    assert done["stopped"] == "stopped" and "已停止" in done["reply"]
+    assert calls["n"] == 1  # 第一批工具之后没有再调模型
+    assert "or 0" not in (cfg.workspace / "app.py").read_text(encoding="utf-8")  # 被拒了，没写进去
+    trace_types = [data["type"] for kind, data in events if kind == "trace"]
+    assert "turn.stop" in trace_types and trace_types[-1] == "turn.end"
+
+    # 轮次已结束：再点停止返回 stopped=false，不报错
+    status, body, _ = call(port, "POST", f"/api/sessions/{sid}/stop", {}, cookie=cookie)
+    assert status == 200 and body["stopped"] is False
+    # 没有这个在线会话：404
+    assert call(port, "POST", "/api/sessions/s-not-live/stop", {}, cookie=cookie)[0] == 404
 
 
 def test_reasoning_reaches_stream_and_history_without_entering_trace(running):
@@ -391,3 +454,16 @@ def test_resume_refuses_missing_original_workspace(running):
     app.workspaces.delete(wid)
     assert call(port,'POST',f'/api/sessions/{s.id}/resume',{},cookie)[0]==409
     assert s.id not in app.live
+
+
+def test_bypass_http_persistence_and_switch(running):
+    app, port = running
+    cookie = login(port)
+    sid = call(port, "POST", "/api/sessions", {"bypass": True}, cookie=cookie)[1]["id"]
+    assert app.live[sid].agent.bypass
+    assert call(port, "GET", f"/api/sessions/{sid}", cookie=cookie)[1]["bypass"]
+    app.live.pop(sid)
+    resumed = app.resume_session(sid)
+    assert resumed.agent.bypass
+    body = call(port, "PATCH", f"/api/sessions/{sid}", {"bypass": False, "yolo": True}, cookie=cookie)[1]
+    assert not body["bypass"] and body["yolo"]

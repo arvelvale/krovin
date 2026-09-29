@@ -47,22 +47,28 @@ export const api = {
   logout: () => request<{ ok: boolean }>("POST", "/api/logout", {}),
   status: () => request<Status>("GET", "/api/status"),
   sessions: () => request<SessionSummary[]>("GET", "/api/sessions"),
-  createSession: (useJev: boolean, tier: string, yolo = false) =>
-    request<{ id: string }>("POST", "/api/sessions", { use_jev: useJev, tier, yolo }),
+  createSession: (useJev: boolean, tier: string, yolo = false, bypass = false) =>
+    request<{ id: string }>("POST", "/api/sessions", { use_jev: useJev, tier, yolo, bypass }),
   renameSession: (id: string, title: string) =>
     request<{ ok: boolean; title: string }>("PATCH", `/api/sessions/${encodeURIComponent(id)}`, { title }),
   sessionCleanup: (id: string) => request<{ description: string; delete_workspace: boolean }>("GET", `/api/sessions/${encodeURIComponent(id)}/cleanup`),
   deleteSession: (id: string, deleteWorkspace?: boolean) => request<{ ok: boolean; workspace_deleted: boolean }>("DELETE", `/api/sessions/${encodeURIComponent(id)}`, { delete_workspace: deleteWorkspace }),
-  setYolo: (id: string, yolo: boolean) =>
-    request<{ tier: string; yolo: boolean }>("PATCH", `/api/sessions/${encodeURIComponent(id)}`, { yolo }),
+  setYolo: (id: string, yolo: boolean, bypass = false) =>
+    request<{ tier: string; yolo: boolean; bypass: boolean }>("PATCH", `/api/sessions/${encodeURIComponent(id)}`, { yolo, bypass }),
   session: (id: string) => request<SessionDetail>("GET", `/api/sessions/${encodeURIComponent(id)}`),
   resumeSession: (id: string) => request<{ id: string }>("POST", `/api/sessions/${encodeURIComponent(id)}/resume`, {}),
   setTier: (id: string, tier: string) =>
     request<{ tier: string }>("PATCH", `/api/sessions/${encodeURIComponent(id)}`, { tier }),
-  turn: (id: string, text: string, source: "text" | "voice") =>
-    request<{ ok: boolean }>("POST", `/api/sessions/${encodeURIComponent(id)}/turn`, { text, source }),
+  uploadImage: (id: string, file: File) =>
+    request<{ id: string; mime: string }>("POST", `/api/sessions/${encodeURIComponent(id)}/images`, undefined, file),
+  imageUrl: (id: string, imageId: string) =>
+    `/api/sessions/${encodeURIComponent(id)}/images/${encodeURIComponent(imageId)}`,
+  turn: (id: string, text: string, source: "text" | "voice", images: string[] = []) =>
+    request<{ ok: boolean }>("POST", `/api/sessions/${encodeURIComponent(id)}/turn`, { text, source, images }),
   confirm: (id: string, confirmId: string, approve: boolean) =>
     request<{ ok: boolean }>("POST", `/api/sessions/${encodeURIComponent(id)}/confirm`, { id: confirmId, approve }),
+  stop: (id: string) =>
+    request<{ ok: boolean; stopped: boolean }>("POST", `/api/sessions/${encodeURIComponent(id)}/stop`, {}),
   memory: (status: "active" | "pending") => request<MemoryItem[]>("GET", `/api/memory?status=${status}`),
   approveMemory: (id: string) => request<{ ok: boolean }>("POST", `/api/memory/${encodeURIComponent(id)}/approve`, {}),
   forgetMemory: (id: string) => request<{ ok: boolean }>("DELETE", `/api/memory/${encodeURIComponent(id)}`),

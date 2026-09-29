@@ -474,6 +474,13 @@ def tunnel_forever(remote_port: int, local_port: int, remote_panel_port: int, fo
                 client.close()
                 time.sleep(15)
                 continue
+            # 评审常驻面板使用 10091；个人面板使用 10090。两种启动方式都可由同一窗口维持代理。
+            if remote_port != 10091:
+                try:
+                    open_tunnel(client, 10091)
+                    print("    评审面板代理端口 10091 也已连接", flush=True)
+                except Exception as exc:
+                    print(f"    评审面板代理端口 10091 未连接：{str(exc)[:100]}", flush=True)
             if forward:
                 if fwd is None:
                     fwd = forward_local(client, local_port, remote_panel_port)
@@ -484,7 +491,8 @@ def tunnel_forever(remote_port: int, local_port: int, remote_panel_port: int, fo
             if forward:
                 print(f"    面板：浏览器打开 http://127.0.0.1:{local_port}", flush=True)
             rc, _ = _ssh(client, f"tmux has-session -t {DAEMON_SESSION}")
-            if rc != 0:
+            judge_rc, _ = _ssh(client, f"tmux has-session -t krovin-serve-{remote_panel_port}")
+            if rc != 0 and judge_rc != 0:
                 print("    提示：节点上的面板还没有启动，先运行 krovin-panel.bat（只需要做一次）", flush=True)
             print("    这个窗口保持打开；关掉后 JEV / Linear 暂时不可用（聊天和改代码照常）。Ctrl+C 结束。", flush=True)
             started = time.monotonic()

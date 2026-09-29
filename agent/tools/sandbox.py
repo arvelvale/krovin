@@ -28,7 +28,7 @@ TOOLS = [
          "在 OpenShell 沙箱里运行命令（bash）：网络仅限策略允许的软件源，系统目录只读、只有沙箱内的工作目录可写，Python 3.14 / Node 22 / git 可用。"
          "工作区会先复制进去，运行结束后新增或修改的文件同步回工作区（不同步删除）。"
          "可运行程序、测试和构建；npm/pip 软件源已配置，安装失败时报告实际错误。"
-         "普通网页不走沙箱 curl，请用 fetch_webpage；成品页面用预览查看。",
+         "普通网页不走沙箱 curl，请用 fetch_webpage；启动 npm run dev 并进行浏览器交互、截图请用 browser_check，避免长驻命令一直等待直到超时。",
          params({"command": {"type": "string", "description": "bash 命令，在工作区根目录执行"},
                  "timeout": {"type": "integer", "description": "秒，默认 60，最大 300"}}, ["command"]),
          Permission.WRITE_LOCAL, run_in_sandbox),

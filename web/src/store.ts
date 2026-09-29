@@ -10,13 +10,14 @@ export interface Current {
   busy: boolean;
   useJev: boolean | null;
   tier: string;
+  bypass: boolean;
   yolo: boolean; // 全自动：原本要问你的确认改由 JEV 自动决定
   workspace: string | null; // 这个会话固定使用的工作区名字
   workspaceId: string | null; // 对应的工作区 id（产物卡片用它开预览）
   turns: Map<number, Turn>;
   working: Working | null;
   confirms: Map<string, ConfirmItem>;
-  pendingInput: { text: string; source: "text" | "voice" } | null;
+  pendingInput: { text: string; source: "text" | "voice"; images: string[] } | null;
   stream: "none" | "open" | "reconnecting";
 }
 
@@ -33,7 +34,7 @@ export interface AppState {
   memoryList: MemoryItem[];
   drawer: "memory" | "models" | "setup" | "preview" | null;
   newSessionOpen: boolean;
-  newSession: { useJev: boolean; tier: string; yolo: boolean };
+  newSession: { useJev: boolean; tier: string; yolo: boolean; bypass: boolean };
   mobileView: "chat" | "trace";
   sidebarOpen: boolean;
   toast: { text: string; kind: "info" | "error" } | null;
@@ -52,7 +53,7 @@ export const state: AppState = {
   memoryList: [],
   drawer: null,
   newSessionOpen: false,
-  newSession: { useJev: true, tier: "auto", yolo: false },
+  newSession: { useJev: true, tier: "auto", yolo: false, bypass: false },
   mobileView: "chat",
   sidebarOpen: false,
   toast: null,
@@ -101,7 +102,7 @@ function turnOf(cur: Current, n: number): Turn {
 }
 
 function applyEvent(cur: Current, ev: TraceEvent): void {
-  if (ev.type === "mode.change") cur.yolo = !!ev.data.yolo;
+  if (ev.type === "mode.change") { cur.yolo = !!ev.data.yolo; cur.bypass = !!ev.data.bypass; }
   if (!ev.turn) return;
   const t = turnOf(cur, ev.turn);
   if (t.events.some((e) => e.seq === ev.seq)) return; // 重连后去重
@@ -109,6 +110,7 @@ function applyEvent(cur: Current, ev: TraceEvent): void {
   if (ev.type === "turn.start") {
     t.input = String(ev.data.input ?? "");
     t.source = String(ev.data.source ?? "text");
+    t.images = Array.isArray(ev.data.images) ? ev.data.images : [];
   } else if (ev.type === "turn.end" && !t.done) {
     t.done = {
       turn: ev.turn, stopped: ev.data.stopped, steps: ev.data.steps, tokens: ev.data.tokens,
@@ -119,7 +121,7 @@ function applyEvent(cur: Current, ev: TraceEvent): void {
 
 function fromDetail(d: SessionDetail): Current {
   const cur: Current = {
-    id: d.id, live: d.live, busy: d.busy, useJev: d.use_jev, tier: d.tier ?? "auto", yolo: !!d.yolo, workspace: d.workspace ?? null, workspaceId: d.workspace_id ?? null,
+    id: d.id, live: d.live, busy: d.busy, useJev: d.use_jev, tier: d.tier ?? "auto", yolo: !!d.yolo, bypass: !!d.bypass, workspace: d.workspace ?? null, workspaceId: d.workspace_id ?? null,
     turns: new Map(), working: d.working, confirms: new Map(), pendingInput: null, stream: "none",
   };
   for (const ev of d.events) applyEvent(cur, ev);
@@ -129,7 +131,10 @@ function fromDetail(d: SessionDetail): Current {
   }
   for (const m of d.messages) {
     const t = turnOf(cur, m.turn);
-    if (m.role === "user" && !t.input) t.input = m.content;
+    if (m.role === "user") {
+      if (!t.input) t.input = m.content;
+      if (m.images?.length) t.images = m.images;
+    }
     if (m.role === "assistant") t.reply = m.content;
   }
   for (const c of d.pending) cur.confirms.set(c.id, c);
@@ -336,7 +341,7 @@ export async function openSession(id: string): Promise<void> {
 
 export async function createSession(): Promise<void> {
   try {
-    const { id } = await api.createSession(state.newSession.useJev, state.newSession.tier, state.newSession.yolo);
+    const { id } = await api.createSession(state.newSession.useJev, state.newSession.tier, state.newSession.yolo, state.newSession.bypass);
     update((s) => (s.newSessionOpen = false));
     await openSession(id);
     await loadSessions();
@@ -345,7 +350,7 @@ export async function createSession(): Promise<void> {
   }
 }
 
-export async function sendTurn(text: string, source: "text" | "voice"): Promise<boolean> {
+export async function sendTurn(text: string, source: "text" | "voice", files: File[] = []): Promise<boolean> {
   const cur = state.current;
   if (!cur) {
     toast("请先选择一个对话", "info");
@@ -360,13 +365,20 @@ export async function sendTurn(text: string, source: "text" | "voice"): Promise<
       return false;
     }
   }
+  const images: string[] = [];
+  try {
+    for (const file of files) images.push((await api.uploadImage(cur.id, file)).id);
+  } catch (err) {
+    fail(err);
+    return false;
+  }
   update((s) => {
     s.current!.busy = true;
-    s.current!.pendingInput = { text, source };
+    s.current!.pendingInput = { text, source, images: images.map((id) => api.imageUrl(cur.id, id)) };
     s.followLatest = true;
   });
   try {
-    await api.turn(cur.id, text, source);
+    await api.turn(cur.id, text, source, images);
     return true;
   } catch (err) {
     update((s) => {
@@ -385,6 +397,18 @@ export async function answerConfirm(confirmId: string, approve: boolean): Promis
   if (!cur) return;
   try {
     await api.confirm(cur.id, confirmId, approve);
+  } catch (err) {
+    fail(err);
+  }
+}
+
+/** 点「停止」：告诉内核在这一步边界收尾。busy 等 turn_done 事件自然清掉，不本地抢拍 */
+export async function stopTurn(): Promise<void> {
+  const cur = state.current;
+  if (!cur?.busy) return;
+  try {
+    const r = await api.stop(cur.id);
+    if (r.stopped) toast("收到，正在停下来");
   } catch (err) {
     fail(err);
   }
@@ -427,13 +451,13 @@ export async function deleteSession(id: string, deleteWorkspace?: boolean): Prom
   }
 }
 
-export async function setYolo(on: boolean): Promise<void> {
+export async function setYolo(on: boolean, bypass = false): Promise<void> {
   const cur = state.current;
   if (!cur?.live) return;
   try {
-    const r = await api.setYolo(cur.id, on);
-    update((s) => s.current && (s.current.yolo = r.yolo));
-    toast(r.yolo ? "全自动已开启：由 JEV 自动决定，不再打扰你" : "全自动已关闭：需要时会问你", "info");
+    const r = await api.setYolo(cur.id, on, bypass);
+    update((s) => { if (s.current) { s.current.yolo = r.yolo; s.current.bypass = r.bypass; } });
+    toast(r.bypass ? "Bypass 已开启：执行门控与逐次确认已跳过" : r.yolo ? "全自动已开启：由 JEV 自动决定，不再打扰你" : "全自动已关闭：需要时会问你", "info");
   } catch (err) {
     fail(err);
   }

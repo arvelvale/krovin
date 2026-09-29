@@ -41,6 +41,7 @@ def estimate_tokens(text: str) -> int:
 
 def message_tokens(msg: dict) -> int:
     total = 4 + estimate_tokens(msg.get("content") or "")
+    total += 1200 * len(msg.get("images") or [])
     for call in msg.get("tool_calls") or []:
         total += 8 + estimate_tokens(call["function"].get("arguments") or "")
     return total
@@ -124,7 +125,8 @@ def render_messages(messages: list[dict], limit: int = 6000) -> str:
     for m in messages:
         role = m["role"]
         if role == "user":
-            parts.append(f"用户：{m.get('content', '')}")
+            image_note = f"（附 {len(m['images'])} 张图片）" if m.get("images") else ""
+            parts.append(f"用户：{m.get('content', '')}{image_note}")
         elif role == "assistant":
             if m.get("content"):
                 parts.append(f"助手：{m['content']}")

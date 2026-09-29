@@ -38,6 +38,8 @@ class ToolContext:
     shell_allow: tuple[str, ...] = ()
     sandbox: Any = None                 # 测试里换成假的沙箱；None = 用 agent.sandbox.get_sandbox()
     sandbox_tag: str = ""               # 沙箱里这个会话自己的目录标识
+    image_sink: Callable[[bytes], str] | None = None
+    pending_images: list[str] = field(default_factory=list)
     git_identity: tuple[str, str] | None = None  # 用户在面板里填的提交身份；None = dgx-agent
 
 

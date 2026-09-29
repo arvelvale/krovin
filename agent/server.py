@@ -14,6 +14,7 @@
   POST   /api/sessions/<id>/turn           {text, source} 开始一轮（后台执行，进度走 SSE）
   GET    /api/sessions/<id>/stream         SSE：trace / confirm / confirm_resolved / working / turn_done
   POST   /api/sessions/<id>/confirm        {id, approve} 回答写操作确认
+POST   /api/sessions/<id>/stop           停止当前轮（步边界收尾；等待中的确认按拒绝）
   GET    /api/memory?status=active|pending
   POST   /api/memory/<id>/approve    DELETE /api/memory/<id>
   POST   /api/asr?format=wav               请求体是音频字节 → {text}
@@ -66,6 +67,7 @@ from .asr import AsrError, transcribe
 from .config import ROOT, Config
 from .gate import ConfirmRequest
 from .integrations import IntegrationError, IntegrationStore
+from .images import ImageError, MAX_IMAGE, read_image, save_image, validate_images
 from .kernel import Agent
 from .llm import LLMClient, LLMError
 from .memory import MemoryStore
@@ -149,6 +151,12 @@ class LiveSession:
         self.publish("confirm_resolved", {"id": cid, "approve": answer, "timeout": not answered})
         return answer
 
+    def set_bypass(self, on: bool) -> None:
+        self.agent.bypass = on
+        if on:
+            for cid in list(self.pending):
+                self.answer(cid, True)
+
     def set_yolo(self, on: bool) -> None:
         self.agent.yolo = on
         if on:  # 已经弹出来等着的确认卡：开了全自动就等于同意
@@ -163,7 +171,17 @@ class LiveSession:
         item["done"].set()
         return True
 
-    def start_turn(self, text: str, source: str) -> bool:
+    def request_stop(self) -> bool:
+        """停止当前轮；返回 False 表示这一轮其实已经结束了。等待中的确认卡按拒绝处理。"""
+        with self._lock:
+            if not self.busy:
+                return False
+        self.agent.request_stop()
+        for cid in list(self.pending):
+            self.answer(cid, False)
+        return True
+
+    def start_turn(self, text: str, source: str, images: list[str] | None = None) -> bool:
         with self._lock:
             if self.busy:
                 return False
@@ -171,7 +189,7 @@ class LiveSession:
 
         def work():
             try:
-                res = self.agent.run_turn(text, source)
+                res = self.agent.run_turn(text, source, images=images)
                 self.publish("turn_done", {"turn": res.turn, "reply": res.reply, "tier": res.tier, "steps": res.steps,
                                            "stopped": res.stopped, "tokens": res.tokens,
                                            "latency": round(res.latency, 2), "skills": res.skills})
@@ -213,7 +231,8 @@ def load_history(data_dir: Path, sid: str) -> dict | None:
             msg, turn = rec["payload"]["message"], rec["payload"]["turn"]
             content = msg.get("content") or ""
             if msg["role"] == "user" and not content.startswith(INTERNAL_PREFIX):
-                messages.append({"turn": turn, "role": "user", "content": content})
+                messages.append({"turn": turn, "role": "user", "content": content,
+                                 "images": msg.get("images") or []})
             elif msg["role"] == "assistant" and content and not msg.get("tool_calls"):
                 messages.append({"turn": turn, "role": "assistant", "content": content})
     return {"id": sid, "events": events, "messages": messages, "reasoning": reasoning}
@@ -596,14 +615,16 @@ class App:
             return plan
 
     def new_session(self, use_jev: bool, tier: str | None, workspace: str | None = None,
-                    yolo: bool = False) -> LiveSession:
+                    yolo: bool = False, bypass: bool = False) -> LiveSession:
         with self._lock:
             s = LiveSession(self.session_cfg(workspace), use_jev, tier if tier in ("local", "cloud") else None,
                             self.agent_factory)
+            if bypass:
+                s.set_bypass(True)
             if yolo:
                 s.set_yolo(True)
             update_meta(self.cfg.data_dir, s.id, workspace_id=workspace or self._active_id("workspace"),
-                        use_jev=use_jev, tier=tier or "auto", yolo=yolo)
+                        use_jev=use_jev, tier=tier or "auto", yolo=yolo, bypass=bypass)
             self.live[s.id] = s
         return s
 
@@ -624,6 +645,7 @@ class App:
             s = LiveSession(cfg, bool(meta.get("use_jev", True)), tier if tier in ("local", "cloud") else None,
                             self.agent_factory, session=sid)
             s.set_yolo(bool(meta.get("yolo", False)))
+            s.set_bypass(bool(meta.get("bypass", False)))
             self.live[sid] = s
             return s
 
@@ -799,7 +821,7 @@ def make_handler(app: App):
                     try:
                         s = app.new_session(bool(data.get("use_jev", True)), data.get("tier"),
                                             wid if isinstance(wid, str) and wid else None,
-                                            bool(data.get("yolo", False)))
+                                            bool(data.get("yolo", False)), bool(data.get("bypass", False)))
                     except WorkspaceError as exc:
                         return self._error(400, str(exc))
                     return self._json({"id": s.id}, 201)
@@ -814,6 +836,32 @@ def make_handler(app: App):
                 except WorkspaceError as exc:
                     return self._error(409, str(exc))
                 return self._json({"id": s.id})
+            if action == "stop" and method == "POST":
+                if self._json_body() is None:
+                    return
+                s = app.live.get(sid)
+                if s is None:
+                    return self._error(404, "这个会话没有在运行")
+                return self._json({"ok": True, "stopped": s.request_stop()})
+            if action == "images" and len(rest) == 2 and method == "POST":
+                raw = self._body(MAX_IMAGE)
+                if raw is None:
+                    return
+                try:
+                    with app._lock:
+                        if app.live.get(sid) is None:
+                            return self._error(404, "这个会话不在线")
+                        image_id = save_image(app.cfg.data_dir, sid, raw)
+                    mime = read_image(app.cfg.data_dir, sid, image_id)[1]
+                except ImageError as exc:
+                    return self._error(400, str(exc))
+                return self._json({"id": image_id, "mime": mime}, 201)
+            if action == "images" and len(rest) == 3 and method == "GET":
+                try:
+                    raw, mime = read_image(app.cfg.data_dir, sid, rest[2])
+                except ImageError as exc:
+                    return self._error(404, str(exc))
+                return self._send(200, raw, mime, {"Cache-Control": "private, max-age=3600"})
             if action == "" and method == "GET":
                 hist = load_history(app.cfg.data_dir, sid) or {"id": sid, "events": [], "messages": []}
                 s = app.live.get(sid)
@@ -825,6 +873,7 @@ def make_handler(app: App):
                     "use_jev": s.use_jev if s else None,
                     "tier": (s.agent.force_tier or "auto") if s else None,
                     "yolo": bool(s.agent.yolo) if s else False,
+                    "bypass": bool(getattr(s.agent, "bypass", False)) if s else False,
                     "workspace_id": app.session_workspace(sid, s)[0],
                     "workspace": app.session_workspace(sid, s)[1],
                     "working": s.agent.working.to_dict() if s else None,
@@ -850,35 +899,45 @@ def make_handler(app: App):
                     return
                 if "title" in patch:  # 改名对历史会话也有效
                     title = rename_session(app.cfg.data_dir, sid, str(patch["title"] or ""))
-                    if not ({"tier", "yolo"} & set(patch)):
+                    if not ({"tier", "yolo", "bypass"} & set(patch)):
                         return self._json({"ok": True, "title": title})
             s = self._live(sid)
             if s is None:
                 return
             if patch is not None:
                 data = patch
+                if "bypass" in data:
+                    s.set_bypass(bool(data["bypass"]))
                 if "yolo" in data:
                     s.set_yolo(bool(data["yolo"]))
                 if "tier" in data:
                     tier = data.get("tier")
                     s.agent.force_tier = tier if tier in ("local", "cloud") else None
                 update_meta(app.cfg.data_dir, sid, tier=s.agent.force_tier or "auto", yolo=s.agent.yolo,
-                            use_jev=s.use_jev)
-                return self._json({"tier": s.agent.force_tier or "auto", "yolo": s.agent.yolo})
+                            use_jev=s.use_jev, bypass=getattr(s.agent, "bypass", False))
+                return self._json({"tier": s.agent.force_tier or "auto", "yolo": s.agent.yolo, "bypass": getattr(s.agent, "bypass", False)})
             if action == "turn" and method == "POST":
                 data = self._json_body()
                 if data is None:
                     return
                 text = str(data.get("text", "")).strip()
-                if not text:
+                try:
+                    images = validate_images(app.cfg.data_dir, sid, data.get("images", []))
+                except ImageError as exc:
+                    return self._error(400, str(exc))
+                if images and not s.agent.cfg.vision:
+                    return self._error(503, "尚未配置图片理解模型")
+                if not text and not images:
                     return self._error(400, "说点什么再发送吧")
+                if not text:
+                    text = "请查看我发送的图片。"
                 if len(text) > 8000:
                     return self._error(413, "一次说的内容太长了")
                 source = "voice" if data.get("source") == "voice" else "text"
                 with app._lock:
                     if app.live.get(sid) is not s:
                         return self._error(409, "会话已删除，请新建对话")
-                    if not s.start_turn(text, source):
+                    if not s.start_turn(text, source, images):
                         return self._error(409, "上一轮还在进行，稍等一下")
                 return self._json({"ok": True}, 202)
             if action == "confirm" and method == "POST":
@@ -1135,7 +1194,7 @@ def make_handler(app: App):
             extra = {"Cache-Control": cache}
             if target.name == "index.html":
                 extra["Content-Security-Policy"] = (
-                    "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+                    "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
                     "media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'")
             self._send(200, target.read_bytes(), ctype, extra)
 
