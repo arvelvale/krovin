@@ -308,7 +308,7 @@ def _watch(url: str | None, stop: threading.Event) -> None:
 
 
 def serve_forever(port: int, local_port: int, public: bool, extra: str) -> int:
-    """评审期间用：SSH 断了自动重连，面板随之重启；登录态已落盘，评委不用重新登录。Ctrl+C 结束。"""
+    """面板常驻 tmux；SSH 仅承载转发，断线重连不会重启面板或中断任务。"""
     import time
     host = "0.0.0.0" if public else "127.0.0.1"
     url = public_url(port) if public else None
@@ -334,18 +334,33 @@ def serve_forever(port: int, local_port: int, public: bool, extra: str) -> int:
                 print(f"本机访问：http://127.0.0.1:{local_port}" + (f"　公网访问：{url}" if url else ""), flush=True)
             else:
                 fwd.client = client
-            print(f"[{time.strftime('%H:%M:%S')}] 已连上节点，启动面板（这个窗口不要关）", flush=True)
+            print(f"[{time.strftime('%H:%M:%S')}] 已连上节点，检查常驻面板", flush=True)
             started = time.monotonic()
             try:
-                run(f"python3 -m agent serve --host {host} --port {port}{extra}", tunnel=True, pty=True, client=client)
+                # 固定端口保证 SSH 重连后常驻进程仍能使用同一个代理地址。
+                open_tunnel(client, 10091)
+                session_name = f"krovin-serve-{port}"
+                rc, _ = _ssh(client, f"tmux has-session -t {session_name}")
+                if rc != 0:
+                    proxy = "http://127.0.0.1:10091"
+                    inner = (f"cd ~/{REMOTE_DIR} && export PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8 "
+                             f"https_proxy={proxy} http_proxy={proxy} no_proxy=127.0.0.1,localhost; "
+                             f"exec python3 -m agent serve --host {host} --port {port}{extra}")
+                    rc, _ = _ssh(client, f"tmux new-session -d -s {session_name} {shlex.quote(inner)}")
+                    if rc != 0:
+                        raise RuntimeError("常驻面板启动失败")
+                while client.get_transport() and client.get_transport().is_active():
+                    time.sleep(3)
             except Exception as exc:  # noqa: BLE001  网络断开时 recv 可能直接抛异常
                 print(f"[{time.strftime('%H:%M:%S')}] 连接异常：{str(exc)[:100]}", flush=True)
+            finally:
+                client.close()
             lived = time.monotonic() - started
             wait = 5 if lived > 30 else 20  # 刚起就挂说明有别的问题，放慢一点
             print(f"[{time.strftime('%H:%M:%S')}] 连接断开（运行了 {lived / 60:.0f} 分钟），{wait} 秒后自动重连", flush=True)
             time.sleep(wait)
     except KeyboardInterrupt:
-        print("已停止。节点上的面板随 SSH 断开一起退出。", flush=True)
+        print("隧道已停止，节点上的 tmux 面板继续运行。", flush=True)
         return 0
     finally:
         stop.set()

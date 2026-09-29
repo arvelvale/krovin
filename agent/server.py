@@ -108,13 +108,14 @@ def _clip(text: str, n: int) -> str:
 class LiveSession:
     """一个在线会话：一个 Agent + SSE 订阅者 + 等待网页回答的写操作确认。"""
 
-    def __init__(self, cfg: Config, use_jev: bool, tier: str | None, factory=Agent):
+    def __init__(self, cfg: Config, use_jev: bool, tier: str | None, factory=Agent, session: str | None = None):
         self.subs: list[queue.Queue] = []
         self.pending: dict[str, dict] = {}
         self.busy = False
         self.use_jev = use_jev
         self._lock = threading.Lock()
-        self.agent = factory(cfg, confirm=self._confirm, use_jev=use_jev, force_tier=tier)
+        self.agent = factory(cfg, confirm=self._confirm, use_jev=use_jev, force_tier=tier,
+                             **({"session": session} if session else {}))
         self.agent.trace.subscribe(self._on_trace)
         self.agent.reasoning_listener = lambda item: self.publish("reasoning", item)
 
@@ -601,9 +602,30 @@ class App:
                             self.agent_factory)
             if yolo:
                 s.set_yolo(True)
-            update_meta(self.cfg.data_dir, s.id, workspace_id=workspace or self._active_id("workspace"))
+            update_meta(self.cfg.data_dir, s.id, workspace_id=workspace or self._active_id("workspace"),
+                        use_jev=use_jev, tier=tier or "auto", yolo=yolo)
             self.live[s.id] = s
         return s
+
+    def resume_session(self, sid: str) -> LiveSession:
+        with self._lock:
+            if sid in self.live:
+                return self.live[sid]
+            if not SESSION_ID.fullmatch(sid) or not load_history(self.cfg.data_dir, sid):
+                raise WorkspaceError("没有这个会话")
+            meta = read_meta(self.cfg.data_dir, sid)
+            wid = meta.get("workspace_id")
+            if not wid:
+                raise WorkspaceError("旧会话缺少工作区记录，无法安全恢复到原目录")
+            cfg = self.session_cfg(wid)
+            if not cfg.workspace.is_dir():
+                raise WorkspaceError("原工作区已删除，无法接续这个会话")
+            tier = meta.get("tier")
+            s = LiveSession(cfg, bool(meta.get("use_jev", True)), tier if tier in ("local", "cloud") else None,
+                            self.agent_factory, session=sid)
+            s.set_yolo(bool(meta.get("yolo", False)))
+            self.live[sid] = s
+            return s
 
     def session_workspace(self, sid: str, live: LiveSession | None) -> tuple[str | None, str | None]:
         """(工作区 id, 名字)：新会话从 meta 读；老会话（没写过 meta）在线时退回按路径找名字。"""
@@ -786,6 +808,12 @@ def make_handler(app: App):
             if not SESSION_ID.match(sid):
                 return self._error(400, "会话编号不合法")
             action = rest[1] if len(rest) > 1 else ""
+            if action == "resume" and method == "POST":
+                try:
+                    s = app.resume_session(sid)
+                except WorkspaceError as exc:
+                    return self._error(409, str(exc))
+                return self._json({"id": s.id})
             if action == "" and method == "GET":
                 hist = load_history(app.cfg.data_dir, sid) or {"id": sid, "events": [], "messages": []}
                 s = app.live.get(sid)
@@ -834,6 +862,8 @@ def make_handler(app: App):
                 if "tier" in data:
                     tier = data.get("tier")
                     s.agent.force_tier = tier if tier in ("local", "cloud") else None
+                update_meta(app.cfg.data_dir, sid, tier=s.agent.force_tier or "auto", yolo=s.agent.yolo,
+                            use_jev=s.use_jev)
                 return self._json({"tier": s.agent.force_tier or "auto", "yolo": s.agent.yolo})
             if action == "turn" and method == "POST":
                 data = self._json_body()

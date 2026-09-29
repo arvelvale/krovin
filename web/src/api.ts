@@ -56,6 +56,7 @@ export const api = {
   setYolo: (id: string, yolo: boolean) =>
     request<{ tier: string; yolo: boolean }>("PATCH", `/api/sessions/${encodeURIComponent(id)}`, { yolo }),
   session: (id: string) => request<SessionDetail>("GET", `/api/sessions/${encodeURIComponent(id)}`),
+  resumeSession: (id: string) => request<{ id: string }>("POST", `/api/sessions/${encodeURIComponent(id)}/resume`, {}),
   setTier: (id: string, tier: string) =>
     request<{ tier: string }>("PATCH", `/api/sessions/${encodeURIComponent(id)}`, { tier }),
   turn: (id: string, text: string, source: "text" | "voice") =>

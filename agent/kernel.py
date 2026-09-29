@@ -23,7 +23,7 @@ from .gate import ConfirmRequest, ToolGate
 from .llm import LLMClient, LLMError
 from .memory import MemoryManager, MemorySelection, MemoryStore
 from .prompts import render_skill, render_system
-from . import subagents
+from . import subagents, resume
 from .router import ModelRouter, Route
 from .skills import Selection, SkillSelector, load_skills
 from .tools import Permission, ToolContext, ToolError, build_registry, truncate
@@ -138,6 +138,8 @@ class Agent:
         self._drift_nudged = 0
         self.reasoning_listener: Callable[[dict], None] | None = None
         self.ctx.delegate = lambda tasks: subagents.delegate(self, self._current_ep, tasks)
+        if session:
+            resume.restore(self)
 
     def _record_reasoning(self, raw: str, turn: int, step: int, model: str) -> None:
         """把模型确实返回的思考保存给会话页面，不写进决策轨迹。"""
@@ -332,6 +334,7 @@ class Agent:
             system = self._system(sel, mem, ep.is_private)
             if self.compressor.maybe_compress(self.conv, estimate_tokens(system), self.working, turn, self.ratio):
                 system = self._system(sel, mem, ep.is_private)
+            resume.save(self)
             messages = [{"role": "system", "content": system}] + self.conv.messages
             self._current_ep = ep  # 子助手在本机不可用时跟随主 agent 当前的模型
             est = estimate_tokens(system) + self.conv.tokens()
@@ -367,6 +370,7 @@ class Agent:
                 for call in res.tool_calls:
                     content = self._run_tool(call, allowed_write, text, tool_log)
                     self.conv.add({"role": "tool", "tool_call_id": call.id, "content": content}, turn)
+                    resume.save(self)
                     bad += bool(call.parse_error)
                 malformed = malformed + 1 if bad else 0
                 self._drift_nudge(turn)  # 放在整批工具结果之后，不打断 tool_calls 与结果的配对
@@ -393,6 +397,7 @@ class Agent:
             open_items = "；".join(self.working.open_items()) or "无"
             reply = f"已达到单轮步数上限（{self.cfg.max_steps} 步），先停在这里。未完成：{open_items}"
         self.conv.add({"role": "assistant", "content": reply}, turn)
+        resume.save(self)
 
         try:
             start, end = self.conv.turn_span(turn)

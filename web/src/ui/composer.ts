@@ -34,8 +34,8 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
     textarea.style.height = `${Math.min(textarea.scrollHeight, 220)}px`;
   };
 
-  // 还没有对话（欢迎页）时也能直接输入，发送时自动新建；历史会话只读
-  const busy = () => (state.current ? !state.current.live || !!state.current.busy : false);
+  // 欢迎页发送时新建；历史会话发送时恢复原会话。
+  const busy = () => !!state.current?.busy;
 
   const currentLive = () => !!state.current?.live;
 
@@ -124,7 +124,7 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
   sendBtn.addEventListener("click", () => void submit());
   micBtn.addEventListener("click", () => void toggleVoice());
   window.addEventListener("spark:compose", (event) => {
-    if (!state.current?.live) return;
+    if (!state.current) return;
     textarea.value = (event as CustomEvent<string>).detail;
     voiceDraft = false;
     autosize();
@@ -135,9 +135,9 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
   function sync() {
     const cur = state.current;
     const disabled = busy();
-    textarea.disabled = !!cur && !cur.live;
+    textarea.disabled = false;
     sendBtn.disabled = disabled || !textarea.value.trim() || voice !== "idle";
-    micBtn.disabled = (!!cur && !cur.live) || voice === "transcribing";
+    micBtn.disabled = voice === "transcribing";
     micBtn.classList.toggle("recording", voice === "recording");
     micBtn.title = voice === "recording" ? "再点一下结束录音" : "语音输入";
     micBtn.setAttribute("aria-label", micBtn.title);
@@ -148,7 +148,7 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
     pickers.sync();
     mount(micBtn, voice === "transcribing" ? icon(LoaderCircle, 16, "spin") : voice === "recording" ? icon(Square, 14) : icon(Mic, 16));
     if (!cur) hint.textContent = "直接输入就会新建对话 · Enter 发送";
-    else if (!cur.live) hint.textContent = "这是历史会话，只能查看；新建对话才能继续";
+    else if (!cur.live) hint.textContent = "输入即可接续这段会话，将恢复原工作区和上下文";
     else if (voice === "recording") mount(hint, level, `正在听 ${seconds}s · 再点一下结束（最长 ${MAX_SECONDS}s）`);
     else if (voice === "transcribing") hint.textContent = "正在把语音转成文字…";
     else if (cur.busy) hint.textContent = "上一轮还在进行，稍等一下";

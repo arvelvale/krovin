@@ -170,6 +170,7 @@ function openStream(id: string): void {
     if (!mine()) return;
     wasDown = true;
     update((s) => s.current && (s.current.stream = "reconnecting"));
+    void resync(id); // 后端重启后旧 SSE 会返回 404，不能只等 onopen。
   };
   es.addEventListener("trace", (e) => {
     if (!mine()) return;
@@ -233,6 +234,7 @@ async function resync(id: string): Promise<void> {
       fresh.pendingInput = s.current.pendingInput;
       s.current = fresh;
     });
+    if (!d.live && state.current?.id === id) closeStream();
   } catch (err) {
     fail(err);
   }
@@ -345,9 +347,18 @@ export async function createSession(): Promise<void> {
 
 export async function sendTurn(text: string, source: "text" | "voice"): Promise<boolean> {
   const cur = state.current;
-  if (!cur || !cur.live) {
-    toast("先新建一个对话，历史会话只能查看", "info");
+  if (!cur) {
+    toast("请先选择一个对话", "info");
     return false;
+  }
+  if (!cur.live) {
+    try {
+      await api.resumeSession(cur.id);
+      await openSession(cur.id);
+    } catch (err) {
+      fail(err);
+      return false;
+    }
   }
   update((s) => {
     s.current!.busy = true;

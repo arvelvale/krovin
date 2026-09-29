@@ -361,3 +361,33 @@ def test_busy_and_demo_workspace_protected(running):
     assert app.session_cleanup(s.id)['delete_workspace'] is False
     app.delete_session(s.id)
     assert app.cfg.workspace.exists()
+
+def test_history_resume_same_id_workspace_and_next_turn(running):
+    app, port = running
+    cookie=login(port)
+    wid=app.workspaces.create_empty('resume-test')['id']
+    s=app.new_session(True,'local',wid)
+    s.agent.trace.turn=3
+    s.agent.trace.emit('turn.start',{'input':'原任务'})
+    s.agent.conv.add({'role':'user','content':'请记住原任务'},3)
+    app.live.pop(s.id)
+    code, data, _=call(port,'POST',f'/api/sessions/{s.id}/resume',{},cookie)
+    assert code==200 and data['id']==s.id
+    restored=app.live[s.id]
+    assert restored.agent.cfg.workspace==app.workspaces.path(wid)
+    assert restored.agent.trace.turn==3 and not restored.busy
+    assert any(m.get('content')=='请记住原任务' for m in restored.agent.conv.messages)
+    assert call(port,'POST',f'/api/sessions/{s.id}/resume',{},cookie)[0]==200
+    assert app.live[s.id] is restored
+
+
+def test_resume_refuses_missing_original_workspace(running):
+    app, port=running
+    cookie=login(port)
+    wid=app.workspaces.create_empty('gone')['id']
+    s=app.new_session(True,'local',wid)
+    s.agent.trace.emit('turn.start',{'input':'x'})
+    app.live.pop(s.id)
+    app.workspaces.delete(wid)
+    assert call(port,'POST',f'/api/sessions/{s.id}/resume',{},cookie)[0]==409
+    assert s.id not in app.live
