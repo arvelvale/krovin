@@ -21,7 +21,7 @@ export function renderLanding(): HTMLElement {
         h("br"), "完成拆解、计划、开发、日志与状态同步。每一步「选哪个」，都有迹可循。"),
       h("div", { class: "landing-facts" },
         fact("JEV", "结构化决策层"),
-        fact("13", "项 Skills"),
+        fact("12", "项 Skills"),
         fact("3", "档模型路由"),
         fact("本地", "推理为主力")),
 

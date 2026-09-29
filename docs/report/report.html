@@ -73,7 +73,7 @@
   <p><b>核心亮点一：一切「选哪个」交给独立的决策层。</b>JEV（TypeSafe System One 模型）负责技能选择、模型路由、工具门控、记忆精选与上下文压缩——它只做选择题和评分，不替主模型生成答案；每次选择的概率分布、置信度与所过阈值都写进决策轨迹，面板右侧可逐条翻阅、可复算。</p>
   <p><b>核心亮点二：人掌握方向有具体的按钮。</b>写操作默认弹出确认卡，先用一句人话说清「要做什么」和「JEV 怎么看」，原始参数折叠在下；被拒绝的调用完整留痕，Agent 不会绕路重写。运行中还可随时点停止键，内核在步边界收尾，未完成事项留在工作记忆里。</p>
   <p><b>核心亮点三：模型按难度与隐私路由。</b>本地 Nemotron 承担主力推理；连续非法工具参数或难题自动升级到 StepFun；隐私记忆只在私有模型可见，外部调用按深度过滤。</p>
-  <p><b>技术实现与架构：</b>内核为单进程 Python，主循环按步推进，每步前检查上下文压缩与停止请求；技能以 <code>skills/*/SKILL.md</code> 交付，frontmatter 带触发词、工具白名单与负向路由，采用渐进式披露（索引一行进上下文，命中才读全文）；工具层覆盖文件、git、白名单命令、OpenShell 沙箱、Linear 与 Obsidian；上下文超预算时按块压缩，保护目标、约束与未完成事项，原始记录落盘可恢复；Web 面板把会话、模型状态、确认动作与决策轨迹收在同一块工作台。</p>
+  <p><b>技术实现与架构：</b>内核为单进程 Python，主循环按步推进，每步前检查上下文压缩与停止请求；技能以 <code>skills/*/SKILL.md</code> 交付，frontmatter 带触发词、工具白名单与负向路由，技能索引每轮只带一行、命中后才读全文；工具层覆盖文件、git、白名单命令、OpenShell 沙箱、Linear 与 Obsidian；上下文超预算时按块压缩，保护目标、约束与未完成事项，原始记录落盘可恢复；Web 面板把会话、模型状态、确认动作与决策轨迹收在同一块工作台。</p>
   <p><b>优化方案：</b>token 估算倍率用真实用量在线校准；压缩预算与全部阈值集中在 <code>agent/config.py</code> 并带方向注释，改动必须跑对应评估；A/B harness 对同一任务集比较「有 / 无 JEV 决策层」两臂。当前数据如实标注：技能选择任务集为自建训练集，26 条调参后 JEV 臂 100% 对主模型自选 88.5%；扩到 60 条后为 81.7% 对 75.0%，标定仍在进行——100% 是训练集成绩，不代表新任务表现。</p>
 
   <div class="pagebreak"></div>
@@ -104,13 +104,28 @@
   </ul>
 
   <h3>2.3 如何设计 Agent Skills</h3>
+  <p><b>设计出发点：</b>技能不是能力大杂烩，而是开发流的工序。KROVIN 的技能围绕「读 issue / 纪要 → 拆解 → 计划 → 开发 → 审查 → 日志 → 状态同步」这条真实流水线配对，每个技能只对一段工序负责；工序之间的边界不靠模型自觉，靠格式契约和负向路由约束。</p>
+  <table>
+    <tr><th style="width:11%">工序</th><th style="width:19%">技能</th><th>干什么</th><th style="width:36%">关键约束（写进 frontmatter）</th></tr>
+    <tr><td>拆</td><td>issue-breakdown</td><td>把 Linear issue 或一段需求拆成可独立完成的子任务，每条带验收标准</td><td>经用户确认后才作为子 issue 写回 Linear</td></tr>
+    <tr><td>拆</td><td>meeting-to-tasks</td><td>从 Obsidian 会议纪要提取行动项，查重后建 issue 草稿</td><td>经用户确认后才写入 Linear</td></tr>
+    <tr><td>计</td><td>plan-writer</td><td>为选定 issue 写实施计划：切片、验收、风险、涉及文件，存 docs/plans/</td><td>只写计划文档，不动代码</td></tr>
+    <tr><td>开</td><td>implement-change</td><td>按 issue 或计划改代码、补测试并跑通，在独立分支上提交</td><td>白名单仅限文件、git、白名单命令与沙箱</td></tr>
+    <tr><td>开</td><td>build-webpage</td><td>从零写能在浏览器直接运行的静态网页 / 小游戏（可用 CDN 版 React、Vue）</td><td>产物限定工作区内，完成后浏览器验收</td></tr>
+    <tr><td>审</td><td>review-gate</td><td>对照工作区硬约定审查改动，按「阻断 / 建议 / 通过」分级给结论</td><td>只读，不改任何内容</td></tr>
+    <tr><td>记</td><td>progress-logger</td><td>把当天提交与完成的 issue 整理成 docs/progress/&lt;日期&gt;.md 留档</td><td>只写文件、不改 Linear 状态；固定本地模型</td></tr>
+    <tr><td>记</td><td>standup-brief</td><td>生成「昨日完成 / 今日计划 / 阻塞」三段口头简报</td><td>只在对话里回复；固定本地模型</td></tr>
+    <tr><td>同</td><td>status-sync</td><td>按提交记录与测试结果把 Linear 状态和进展评论同步到最新</td><td>只改 Linear、不写日志；固定本地模型</td></tr>
+  </table>
+  <p style="font-size:9.5pt;color:var(--ink-3)">另有 3 个 internal 技能不进入选择索引，供流程内引用：branch-hygiene（分支命名、未提交改动、与 main 同步状态）、changelog-sync（按版本归类生成 CHANGELOG）、test-gap-finder（diff 测试缺口分析）。</p>
   <ul>
-    <li><b>物理形态：</b><code>skills/&lt;name&gt;/SKILL.md</code>。frontmatter 含 name、description（前堆触发词）、argument-hint、allowed-tools（工具白名单）、not-for（负向路由，指向正确的其它技能）、version。</li>
-    <li><b>渐进式披露：</b>每个请求只带技能索引（一行）进上下文，命中后才加载全文——避免大 roster 撑爆上下文、拖累选择，这也是 NVIDIA 官方 rag-blueprint skill 的同款做法（已作参考研读）。</li>
-    <li><b>结构化选择：</b>JEV 两级决策。第一级 Choice 对全部技能排序 + 三个门控问题（本轮是否真需要技能）；第二级仅对 top3 读全文精排 + fits 疑问。阈值集中于 config.py，起始 0.30，在任务集上标定后调整。</li>
-    <li><b>质量保障：</b>评测任务集分「有技能覆盖 / 无技能覆盖 / 需组合」三类，含近义技能对与负向用例；A/B 对照「JEV 选择 vs 主模型自选」，输出正确率、误选率、token 与耗时。</li>
-    <li><b>接口冻结：</b>技能文件、任务集、决策轨迹三份格式契约冻结（只增不改），五人并行开发不改字段，评测脚本与实现解耦。</li>
-    <li><b>沙箱执行：</b>跑命令的技能经 OpenShell 沙箱：非 root、系统目录只读、网络只放行软件源，策略 YAML 版本化，随仓库走。</li>
+    <li><b>物理形态与加载校验：</b><code>skills/&lt;name&gt;/SKILL.md</code>，frontmatter 含 name、description（含触发词的职责描述）、argument-hint、allowed-tools（工具白名单）、not-for（负向路由）、model（auto / local / cloud）、version，还可声明自带脚本（read 直接跑、write_local 走 JEV 门控）。加载即校验：name 必须 kebab-case 且等于目录名、description ≤ 300 字、version 形如 x.y.z、触发词 ≥ 2 条、not-for ≥ 1 条、白名单工具必须已注册、声明的脚本必须真实存在——任一不过就只跳过该技能并记录错误，不影响其它技能上线。</li>
+    <li><b>特点一：只读与写入分级，白名单随命中技能生效。</b>纯读取技能（standup-brief、review-gate）不带写工具；写入类也只拿得到自己声明的工具，主循环按「本轮命中技能的 allowed-tools 并集」放行写操作，未声明的工具直接拒绝。跑命令一律进 OpenShell 沙箱：非 root、系统目录只读、网络只放行软件源，策略 YAML 版本化随仓库走。例外是 Bypass 模式：人工接管时跳过白名单与逐次确认，但开发命令仍强制走沙箱。</li>
+    <li><b>特点二：按开销路由模型。</b>轻量整理类（progress-logger、standup-brief、status-sync）标 <code>model: local</code>，固定走本地模型、低延迟低成本；其余技能交给路由层按任务难度决定本地或云端。</li>
+    <li><b>特点三：not-for 负向路由，专门拆近义词。</b>每个技能至少声明一条「这不是我该干的，该去 X」。最容易混的三兄弟：status-sync（改 Linear）、progress-logger（写日志）、standup-brief（口头汇报）互相指向；test-gap-finder 也写明「补写缺失的测试 → implement-change」「review 测试质量 → review-gate」。第一级选错时，第二级精排还有机会纠回来。</li>
+    <li><b>一轮请求的工作流程：</b>① 系统提示常驻技能索引，每个技能只占一行（名称 + 描述），命中前全文不进上下文；② 第一级 JEV Choice 对全部技能宽排（含「都不用」选项），同时问三个门控问题：要对着仓库 / 任务系统 / 笔记做具体的事吗、资深工程师会按团队既定流程或模板处理吗、纯凭通用知识文字回答就够吗（反向计分）；门控值（三问均值）&lt; 0.30 或 P(none) ≥ 0.50，本轮就不加载任何技能，闲聊和概念问答在这一步被挡掉；③ 第二级只对 top3 候选加载正文开头各 700 字，逐个问 fits——只看职责是否直接覆盖请求的主要目标；最高 fits &lt; 0.30 全部拒绝，其余 fits ≥ 0.50 的一起加载，天然支持「拆解 + 计划」这类组合技能；④ 命中后全文进上下文，写操作确认卡照常弹出。JEV 不可用时自动降级为主模型自选（看同一份清单输出 JSON），这条降级路径同时就是 A/B 评估的对照臂；JEV 结果缓存命中时耗时近零，面板据此标注。</li>
+    <li><b>质量保障与当前数据：</b>评测任务集分「有技能覆盖 / 无覆盖 / 需组合」三类，含近义技能对与负向用例；A/B 对照「JEV 选择 vs 主模型自选」，输出正确率、误选率、token 与耗时。当前数据如实标注：技能选择任务集为自建训练集，26 条调参期 JEV 臂 100% 对主模型自选 88.5%；扩到 60 条后为 81.7% 对 75.0%，标定仍在进行——训练集成绩不代表新任务表现。</li>
+    <li><b>接口冻结：</b>技能文件、任务集、决策轨迹三份格式契约冻结（只增不改），多人并行开发不改字段，评测脚本与实现解耦。</li>
   </ul>
 
   <div class="pagebreak"></div>
@@ -129,7 +144,7 @@
     <tr><td>决策层</td><td>JEV（TypeSafe System One，jev-latest）</td><td>结构化决策：技能选择 / 模型路由 / 工具门控 / 记忆精选 / 上下文压缩</td></tr>
     <tr><td>工程栈</td><td>Python 3.12 · TypeScript + Vite · SQLite · tmux · SSH 反向隧道</td><td>单体内核 + 自建 HTTP/SSE 面板；记忆与设置落库；长任务 tmux 托管；跨境流量经操作机代理中转</td></tr>
   </table>
-  <p style="font-size:9.5pt;color:var(--ink-3)">技能共 13 个（dev-flow 全链路 + 网页构建），全部以 markdown 交付于仓库 <code>skills/</code> 目录；决策轨迹、任务集格式契约见 <code>docs/接口/</code>。</p>
+  <p style="font-size:9.5pt;color:var(--ink-3)">技能共 12 个（9 个对外可选 + 3 个内部，覆盖 dev-flow 全链路与网页构建），全部以 markdown 交付于仓库 <code>skills/</code> 目录；决策轨迹、任务集格式契约见 <code>docs/接口/</code>。</p>
 
   <div class="foot">
     KROVIN · 跑在 NVIDIA DGX Spark 上的开发流 Agent · GitHub：<span style="font-family:var(--mono)">github.com/arvelvale/krovin</span><br>
