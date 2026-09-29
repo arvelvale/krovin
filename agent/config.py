@@ -170,6 +170,7 @@ class Config:
     memory_extract: bool = True
     local_thinking: bool = True   # 本地主模型在主循环里是否开思考；辅助任务一律关
     asr: Endpoint | None = None   # 语音识别（阶跃），和「难题」分工位解耦：换了难题模型语音输入照常可用
+    vision: Endpoint | None = None  # 图片理解独立于三个文字分工位，避免用户改备用档位后失效
     linear_key_override: str = ""  # 面板里填的 Linear Key（优先于环境变量），见 integrations.py
     git_name: str = ""             # 面板里填的提交身份；空 = 用 dgx-agent
     git_email: str = ""
@@ -208,6 +209,13 @@ class Config:
                 model=_env("AGENT_BACKUP_MODEL", "qwen3.8:27b"),
                 max_concurrency=2,
                 extra={"reasoning_effort": "none"},
+            ),
+            vision=Endpoint(
+                name="vision",
+                base_url=_env("AGENT_VISION_BASE", "http://127.0.0.1:11434/v1"),
+                model=_env("AGENT_VISION_MODEL", "qwen3.8:27b"),
+                max_concurrency=2,
+                private=True,
             ),
             cloud=Endpoint(
                 name="cloud",

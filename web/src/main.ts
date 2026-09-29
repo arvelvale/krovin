@@ -18,6 +18,7 @@ import { installInteractionMotion } from "./ui/interaction-motion";
 import { installSelectionMotion } from "./ui/selection-motion";
 import { installRubberSegments } from "./ui/rubber-segments";
 import { installGlassSurfaces } from "./ui/glass-surfaces";
+import { createJevStatus } from "./ui/jev-status";
 
 import { installMicroBackground } from "./ui/micro-background";
 
@@ -39,6 +40,8 @@ const sidebar = h("aside", { class: "sidebar", attrs: { "aria-label": "会话与
 const header = h("header", { class: "chat-head" });
 const messages = h("div", { class: "messages" });
 const composer = createComposer();
+const jevStatus = createJevStatus();
+if (import.meta.hot) import.meta.hot.dispose(jevStatus.dispose);
 const modelSettings = createModelSettings();
 let lastDrawer: string | null = null;
 let lastMemoryTab = state.memoryTab;
@@ -62,6 +65,7 @@ function renderHeader(): (HTMLElement | null)[] {
     h("div", { class: "chat-title" },
       h("span", { class: "header-symbol" }, logoMark(18)),
       h("div", { class: "title-group" }, h("span", { class: "header-eyebrow" }, "KROVIN / WORKSPACE"), h("span", { class: "title-text" }, title))),
+    jevStatus.el,
     h("button", {
       class: ["icon-btn only-narrow", state.mobileView === "trace" && "on"], title: "决策轨迹",
       onclick: () => update((s) => (s.mobileView = s.mobileView === "trace" ? "chat" : "trace")),
@@ -146,6 +150,7 @@ function render(): void {
   lastDrawer = state.drawer;
   mount(toastBox, state.toast && h("div", { class: `toast ${state.toast.kind}` }, state.toast.text));
   composer.sync();
+  jevStatus.sync();
   selectionMotion.sync();
   rubberSegments.sync();
   glassSurfaces.sync();

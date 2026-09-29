@@ -36,7 +36,7 @@ export function installGlassSurfaces(root: HTMLElement): { sync: () => void; dis
       if (!root.contains(element) || disabled) remove(element, surface);
     }
     if (disabled) return;
-    for (const element of root.querySelectorAll<HTMLElement>(".composer-box, .login-card")) {
+    for (const element of root.querySelectorAll<HTMLElement>(".composer-box")) {
       if (surfaces.has(element)) continue;
       const host = document.createElement("div");
       host.className = "glass-surface-host";

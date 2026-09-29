@@ -1,4 +1,4 @@
-import { ArrowUp, LoaderCircle, Mic, Square } from "lucide";
+import { ArrowUp, LoaderCircle, Mic, Square, X } from "lucide";
 import { api, ApiError } from "../api";
 import { createSession, sendTurn, setYolo, state, toast } from "../store";
 import { MAX_SECONDS, Recorder, voiceSupported } from "../voice";
@@ -6,6 +6,7 @@ import { createComposerPickers } from "./composer-pickers";
 import { h, icon, mount } from "./dom";
 
 type VoiceState = "idle" | "recording" | "transcribing";
+type DraftImage = { id: number; file: File; url: string };
 
 /** 输入框只建一次（重绘会丢焦点和输入法状态），状态变化时调用 sync() */
 export function createComposer(): { el: HTMLElement; sync: () => void } {
@@ -14,18 +15,21 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
   let recorder: Recorder | null = null;
   let timer = 0;
   let seconds = 0;
+  let nextImageId = 0;
+  let sending = false;
+  const images: DraftImage[] = [];
 
+  const imageInput = h("input", { class: "composer-image-input", attrs: {
+    type: "file", accept: "image/*", multiple: true, "aria-label": "选择图片",
+  } });
+  const imagePreviews = h("div", { class: "composer-attachments", attrs: { "aria-live": "polite" } });
   const textarea = h("textarea", {
     class: "composer-input",
     attrs: { rows: "1", placeholder: "有什么想推进的？", "aria-label": "输入任务" },
   });
   const micBtn = h("button", { class: "icon-btn mic", attrs: { type: "button" } });
   const sendBtn = h("button", { class: "send", attrs: { type: "button", "aria-label": "发送" } }, icon(ArrowUp, 18));
-  const jevLabel = h("span", { class: "composer-jev-label" });
-  const jevStatus = h("span", { class: "composer-jev-status", attrs: { role: "status", "aria-live": "polite" } },
-    h("span", { class: "composer-jev-dot", attrs: { "aria-hidden": "true" } }), jevLabel);
-  const pickers = createComposerPickers();
-  const tierSlot = h("div", { class: "rubber-slot rubber-slot--composer", attrs: { "data-rubber-segment": "composer-tier" } });
+  const pickers = createComposerPickers(() => imageInput.click());
   const hint = h("div", { class: "composer-hint" });
   const level = h("span", { class: "level" });
 
@@ -33,6 +37,38 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
     textarea.style.height = "auto";
     textarea.style.height = `${Math.min(textarea.scrollHeight, 220)}px`;
   };
+
+  const renderImages = () => {
+    mount(imagePreviews, images.length > 0 && [
+      h("div", { class: "composer-image-list" }, images.map(({ id, file, url }) =>
+        h("div", { class: "composer-image" },
+          h("img", { attrs: { src: url, alt: file.name } }),
+          h("button", { class: "composer-image-remove", attrs: { type: "button", "aria-label": `移除图片 ${file.name}` },
+            onclick: () => {
+              const index = images.findIndex((image) => image.id === id);
+              if (index < 0) return;
+              URL.revokeObjectURL(images[index].url);
+              images.splice(index, 1);
+              renderImages();
+              sync();
+            } }, icon(X, 12))))),
+      h("span", { class: "composer-image-note" }, "最多 6 张，每张不超过 8 MB"),
+    ]);
+  };
+
+  imageInput.addEventListener("change", () => {
+    const selected = Array.from(imageInput.files ?? []);
+    const valid = selected.filter((file) => ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(file.type) && file.size <= 8 * 1024 * 1024);
+    const available = Math.max(0, 6 - images.length);
+    for (const file of valid.slice(0, available)) {
+      images.push({ id: ++nextImageId, file, url: URL.createObjectURL(file) });
+    }
+    if (valid.length < selected.length) toast("只支持 8 MB 以内的 PNG、JPEG、GIF 或 WebP 图片", "info");
+    if (valid.length > available) toast("最多预览 6 张图片", "info");
+    imageInput.value = "";
+    renderImages();
+    sync();
+  });
 
   // 欢迎页发送时新建；历史会话发送时恢复原会话。
   const busy = () => !!state.current?.busy;
@@ -48,18 +84,27 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
       sync();
       return;
     }
-    if (!text || busy() || voice !== "idle") return;
-    if (!state.current) {
-      await createSession();
-      if (!currentLive()) return;
-    }
-    const ok = await sendTurn(text, voiceDraft ? "voice" : "text");
-    if (ok) {
-      textarea.value = "";
-      voiceDraft = false;
-      autosize();
-    }
+    if ((!text && !images.length) || busy() || sending || voice !== "idle") return;
+    sending = true;
     sync();
+    try {
+      if (!state.current) {
+        await createSession();
+        if (!currentLive()) return;
+      }
+      const ok = await sendTurn(text, voiceDraft ? "voice" : "text", images.map((image) => image.file));
+      if (ok) {
+        textarea.value = "";
+        voiceDraft = false;
+        for (const image of images) URL.revokeObjectURL(image.url);
+        images.length = 0;
+        renderImages();
+        autosize();
+      }
+    } finally {
+      sending = false;
+      sync();
+    }
   }
 
   async function toggleVoice() {
@@ -136,15 +181,12 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
     const cur = state.current;
     const disabled = busy();
     textarea.disabled = false;
-    sendBtn.disabled = disabled || !textarea.value.trim() || voice !== "idle";
+    sendBtn.disabled = disabled || sending || (!textarea.value.trim() && !images.length) || voice !== "idle";
+    sendBtn.title = sending ? "正在上传图片" : "发送";
     micBtn.disabled = voice === "transcribing";
     micBtn.classList.toggle("recording", voice === "recording");
     micBtn.title = voice === "recording" ? "再点一下结束录音" : "语音输入";
     micBtn.setAttribute("aria-label", micBtn.title);
-    const jevText = !cur ? (state.newSession.useJev ? "JEV 决策层" : "基线 · 无 JEV") : cur.useJev === true ? "JEV 决策层" : cur.useJev === false ? "基线 · 无 JEV" : "JEV 状态未知";
-    jevLabel.textContent = jevText;
-    jevStatus.title = jevText;
-    jevStatus.classList.toggle("on", cur ? cur.useJev === true : state.newSession.useJev);
     pickers.sync();
     mount(micBtn, voice === "transcribing" ? icon(LoaderCircle, 16, "spin") : voice === "recording" ? icon(Square, 14) : icon(Mic, 16));
     if (!cur) hint.textContent = "直接输入就会新建对话 · Enter 发送";
@@ -156,11 +198,11 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
   }
 
   const el = h("div", { class: "composer" },
-    h("div", { class: "composer-box" }, textarea,
+    h("div", { class: "composer-box" }, imageInput, imagePreviews, textarea,
       h("div", { class: "composer-toolbar" },
-        h("div", { class: "composer-controls" }, jevStatus, tierSlot),
+        h("div", { class: "composer-controls" }, pickers.el),
         h("div", { class: "composer-actions" }, micBtn, sendBtn))),
-    pickers.el, hint);
+    hint);
   sync();
   return { el, sync };
 }

@@ -44,6 +44,8 @@ export interface Setup {
   el: HTMLElement;
   open: () => void;
   close: () => void;
+  currentTab: () => SetupTab;
+  selectTab: (tab: SetupTab) => void;
   /** 从别处（侧栏、首次进入、输入框下的选择器）请求打开；真正的挂载由 main.ts 的重绘完成 */
   request: (tab: SetupTab, wizard?: boolean, opts?: { addMode?: AddMode }) => void;
   /** 直接弹出选择文件夹的对话框：选完上传、设为当前工作空间并新开对话（必须在用户点击里调用） */
@@ -69,7 +71,7 @@ export function createSetup(): Setup {
 
   const title = h("h3", null, "工作区与集成");
   const sub = h("p", { class: "muted small" });
-  const tabs = h("div", { class: "setup-tabs" });
+  const tabs = h("div", { class: "setup-tabs rubber-slot rubber-slot--setup", attrs: { "data-rubber-segment": "setup-tabs" } });
   const banner = h("div");
   const body = h("div", { class: "drawer-body" });
   const foot = h("footer", { class: "wizard-foot" });
@@ -600,9 +602,6 @@ export function createSetup(): Setup {
   function render() {
     progressEl = null;
     drawer.classList.toggle("preview-wide", !!browse?.preview);
-    const tabDefs: [SetupTab, string][] = [["workspace", "工作区"], ["vault", "笔记库"], ["integrations", "集成"]];
-    mount(tabs, h("div", { class: "seg" }, tabDefs.map(([t, label]) =>
-      h("button", { class: ["seg-btn", tab === t && "on"], onclick: () => { tab = t; browse = null; addOpen = false; render(); } }, label))));
     title.textContent = wizard ? "开始之前：接上你的环境" : "工作区与集成";
     sub.textContent = wizard
       ? "都可以跳过，直接用演示环境；之后在左下角随时再改。"
@@ -623,6 +622,14 @@ export function createSetup(): Setup {
 
   return {
     el,
+    currentTab: () => tab,
+    selectTab(value) {
+      if (tab === value) return;
+      tab = value;
+      browse = null;
+      addOpen = false;
+      render();
+    },
     request(t, w = false, opts) {
       pending = { tab: t, wizard: w, addMode: opts?.addMode };
       autoUse = !!opts?.addMode;  // 输入框下的「新建工作空间」：建完直接用并回到对话

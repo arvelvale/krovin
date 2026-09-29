@@ -59,8 +59,12 @@ export const api = {
   resumeSession: (id: string) => request<{ id: string }>("POST", `/api/sessions/${encodeURIComponent(id)}/resume`, {}),
   setTier: (id: string, tier: string) =>
     request<{ tier: string }>("PATCH", `/api/sessions/${encodeURIComponent(id)}`, { tier }),
-  turn: (id: string, text: string, source: "text" | "voice") =>
-    request<{ ok: boolean }>("POST", `/api/sessions/${encodeURIComponent(id)}/turn`, { text, source }),
+  uploadImage: (id: string, file: File) =>
+    request<{ id: string; mime: string }>("POST", `/api/sessions/${encodeURIComponent(id)}/images`, undefined, file),
+  imageUrl: (id: string, imageId: string) =>
+    `/api/sessions/${encodeURIComponent(id)}/images/${encodeURIComponent(imageId)}`,
+  turn: (id: string, text: string, source: "text" | "voice", images: string[] = []) =>
+    request<{ ok: boolean }>("POST", `/api/sessions/${encodeURIComponent(id)}/turn`, { text, source, images }),
   confirm: (id: string, confirmId: string, approve: boolean) =>
     request<{ ok: boolean }>("POST", `/api/sessions/${encodeURIComponent(id)}/confirm`, { id: confirmId, approve }),
   memory: (status: "active" | "pending") => request<MemoryItem[]>("GET", `/api/memory?status=${status}`),

@@ -16,6 +16,7 @@ const SERVICE_ROWS: { key: "local" | "backup" | "cloud" | "jev" | "linear"; labe
 ];
 
 let newSessionSwitchMotion: "on" | "off" | null = null;
+let newSessionYoloSwitchMotion: "on" | "off" | null = null;
 let deleteDialog: HTMLDialogElement | null = null;
 
 function confirmDeleteSession(x: SessionSummary): void {
@@ -104,6 +105,8 @@ function newSessionPanel(): HTMLElement {
   const ns = state.newSession;
   const switchMotion = newSessionSwitchMotion;
   newSessionSwitchMotion = null;
+  const yoloSwitchMotion = newSessionYoloSwitchMotion;
+  newSessionYoloSwitchMotion = null;
   return h("div", { class: "popover" },
     h("div", { class: "popover-row" },
       h("div", { class: "popover-label" }, "JEV 决策层"),
@@ -118,9 +121,12 @@ function newSessionPanel(): HTMLElement {
     h("div", { class: "popover-row" },
       h("div", { class: "popover-label" }, "全自动", h("span", { class: "muted small" }, "　写操作不再等你确认")),
       h("button", {
-        class: ["switch", ns.yolo && "on"],
+        class: ["switch", ns.yolo && "on", yoloSwitchMotion && `switch-motion-${yoloSwitchMotion}`],
         attrs: { role: "switch", "aria-checked": String(ns.yolo), "aria-label": "新对话启用全自动模式" },
-        onclick: () => update((s) => { s.newSession.yolo = !s.newSession.yolo; }),
+        onclick: () => {
+          newSessionYoloSwitchMotion = state.newSession.yolo ? "off" : "on";
+          update((s) => { s.newSession.yolo = !s.newSession.yolo; });
+        },
       }, h("span", { class: "knob" }))),
     h("div", { class: "popover-row col" },
       h("div", { class: "popover-label" }, "模型档位"),
@@ -131,7 +137,10 @@ function newSessionPanel(): HTMLElement {
 }
 
 export function renderSidebar(): HTMLElement {
-  if (!state.newSessionOpen) newSessionSwitchMotion = null;
+  if (!state.newSessionOpen) {
+    newSessionSwitchMotion = null;
+    newSessionYoloSwitchMotion = null;
+  }
   const st = state.status;
   const sessions = state.sessions;
   return h("div", { class: "sidebar-inner" },

@@ -11,7 +11,9 @@
   GET    /api/sessions/<id>                轨迹 + 对话 + 工作记忆（在线会话还有待确认项）
   PATCH  /api/sessions/<id>                {tier?, yolo?, title?} 改模型档位 / 开关全自动（开启时把已在等的确认一并同意）/ 改会话名
   DELETE /api/sessions/<id>                删除会话（轨迹和对话一并删除；正在进行的会话不能删）
-  POST   /api/sessions/<id>/turn           {text, source} 开始一轮（后台执行，进度走 SSE）
+  POST   /api/sessions/<id>/images         图片原始字节 → {id, mime}（最多 8 MB/张，64 MB/会话）
+  GET    /api/sessions/<id>/images/<id>    读取本会话图片（需登录）
+  POST   /api/sessions/<id>/turn           {text, source, images?} 开始一轮（后台执行，进度走 SSE）
   GET    /api/sessions/<id>/stream         SSE：trace / confirm / confirm_resolved / working / turn_done
   POST   /api/sessions/<id>/confirm        {id, approve} 回答写操作确认
   GET    /api/memory?status=active|pending
@@ -66,6 +68,7 @@ from .asr import AsrError, transcribe
 from .config import ROOT, Config
 from .gate import ConfirmRequest
 from .integrations import IntegrationError, IntegrationStore
+from .images import ImageError, MAX_IMAGE, read_image, save_image, validate_images
 from .kernel import Agent
 from .llm import LLMClient, LLMError
 from .memory import MemoryStore
@@ -163,7 +166,7 @@ class LiveSession:
         item["done"].set()
         return True
 
-    def start_turn(self, text: str, source: str) -> bool:
+    def start_turn(self, text: str, source: str, images: list[str] | None = None) -> bool:
         with self._lock:
             if self.busy:
                 return False
@@ -171,7 +174,7 @@ class LiveSession:
 
         def work():
             try:
-                res = self.agent.run_turn(text, source)
+                res = self.agent.run_turn(text, source, images=images)
                 self.publish("turn_done", {"turn": res.turn, "reply": res.reply, "tier": res.tier, "steps": res.steps,
                                            "stopped": res.stopped, "tokens": res.tokens,
                                            "latency": round(res.latency, 2), "skills": res.skills})
@@ -213,7 +216,8 @@ def load_history(data_dir: Path, sid: str) -> dict | None:
             msg, turn = rec["payload"]["message"], rec["payload"]["turn"]
             content = msg.get("content") or ""
             if msg["role"] == "user" and not content.startswith(INTERNAL_PREFIX):
-                messages.append({"turn": turn, "role": "user", "content": content})
+                messages.append({"turn": turn, "role": "user", "content": content,
+                                 "images": msg.get("images") or []})
             elif msg["role"] == "assistant" and content and not msg.get("tool_calls"):
                 messages.append({"turn": turn, "role": "assistant", "content": content})
     return {"id": sid, "events": events, "messages": messages, "reasoning": reasoning}
@@ -831,6 +835,25 @@ def make_handler(app: App):
                     "pending": [p["public"] for p in s.pending.values()] if s else [],
                 })
                 return self._json(hist)
+            if action == "images" and len(rest) == 2 and method == "POST":
+                raw = self._body(MAX_IMAGE)
+                if raw is None:
+                    return
+                try:
+                    with app._lock:
+                        if app.live.get(sid) is None:
+                            return self._error(404, "这个会话不在线")
+                        image_id = save_image(app.cfg.data_dir, sid, raw)
+                    mime = read_image(app.cfg.data_dir, sid, image_id)[1]
+                except ImageError as exc:
+                    return self._error(400, str(exc))
+                return self._json({"id": image_id, "mime": mime}, 201)
+            if action == "images" and len(rest) == 3 and method == "GET":
+                try:
+                    raw, mime = read_image(app.cfg.data_dir, sid, rest[2])
+                except ImageError as exc:
+                    return self._error(404, str(exc))
+                return self._send(200, raw, mime, {"Cache-Control": "private, max-age=3600"})
             if action == "cleanup" and method == "GET":
                 return self._json(app.session_cleanup(sid))
             if action == "" and method == "DELETE":
@@ -870,15 +893,23 @@ def make_handler(app: App):
                 if data is None:
                     return
                 text = str(data.get("text", "")).strip()
-                if not text:
+                try:
+                    images = validate_images(app.cfg.data_dir, sid, data.get("images", []))
+                except ImageError as exc:
+                    return self._error(400, str(exc))
+                if images and not s.agent.cfg.vision:
+                    return self._error(503, "尚未配置图片理解模型")
+                if not text and not images:
                     return self._error(400, "说点什么再发送吧")
+                if not text:
+                    text = "请查看我发送的图片。"
                 if len(text) > 8000:
                     return self._error(413, "一次说的内容太长了")
                 source = "voice" if data.get("source") == "voice" else "text"
                 with app._lock:
                     if app.live.get(sid) is not s:
                         return self._error(409, "会话已删除，请新建对话")
-                    if not s.start_turn(text, source):
+                    if not s.start_turn(text, source, images):
                         return self._error(409, "上一轮还在进行，稍等一下")
                 return self._json({"ok": True}, 202)
             if action == "confirm" and method == "POST":

@@ -16,7 +16,7 @@ export interface Current {
   turns: Map<number, Turn>;
   working: Working | null;
   confirms: Map<string, ConfirmItem>;
-  pendingInput: { text: string; source: "text" | "voice" } | null;
+  pendingInput: { text: string; source: "text" | "voice"; images: string[] } | null;
   stream: "none" | "open" | "reconnecting";
 }
 
@@ -109,6 +109,7 @@ function applyEvent(cur: Current, ev: TraceEvent): void {
   if (ev.type === "turn.start") {
     t.input = String(ev.data.input ?? "");
     t.source = String(ev.data.source ?? "text");
+    t.images = Array.isArray(ev.data.images) ? ev.data.images : [];
   } else if (ev.type === "turn.end" && !t.done) {
     t.done = {
       turn: ev.turn, stopped: ev.data.stopped, steps: ev.data.steps, tokens: ev.data.tokens,
@@ -129,7 +130,10 @@ function fromDetail(d: SessionDetail): Current {
   }
   for (const m of d.messages) {
     const t = turnOf(cur, m.turn);
-    if (m.role === "user" && !t.input) t.input = m.content;
+    if (m.role === "user") {
+      if (!t.input) t.input = m.content;
+      if (m.images?.length) t.images = m.images;
+    }
     if (m.role === "assistant") t.reply = m.content;
   }
   for (const c of d.pending) cur.confirms.set(c.id, c);
@@ -345,7 +349,7 @@ export async function createSession(): Promise<void> {
   }
 }
 
-export async function sendTurn(text: string, source: "text" | "voice"): Promise<boolean> {
+export async function sendTurn(text: string, source: "text" | "voice", files: File[] = []): Promise<boolean> {
   const cur = state.current;
   if (!cur) {
     toast("请先选择一个对话", "info");
@@ -360,13 +364,21 @@ export async function sendTurn(text: string, source: "text" | "voice"): Promise<
       return false;
     }
   }
+  const images: string[] = [];
+  try {
+    for (const file of files) images.push((await api.uploadImage(cur.id, file)).id);
+  } catch (err) {
+    fail(err);
+    return false;
+  }
   update((s) => {
     s.current!.busy = true;
-    s.current!.pendingInput = { text, source };
+    s.current!.pendingInput = { text: text || "请查看我发送的图片。", source,
+      images: images.map((imageId) => api.imageUrl(cur.id, imageId)) };
     s.followLatest = true;
   });
   try {
-    await api.turn(cur.id, text, source);
+    await api.turn(cur.id, text, source, images);
     return true;
   } catch (err) {
     update((s) => {

@@ -2,6 +2,7 @@ import {
   ArrowUpRight, Bot, Check, ChevronRight, Cloud, Code2, Cpu, GitPullRequest, ListChecks, LoaderCircle, Mic, ShieldAlert, Blocks, Sun, TriangleAlert, X,
 } from "lucide";
 import { ms, PERMISSION_LABEL, TIER_LABEL } from "../format";
+import { api } from "../api";
 import { answerConfirm, createSession, selectTurn, sortedTurns, state, type Current } from "../store";
 import type { ConfirmItem, Turn } from "../types";
 import { h, icon } from "./dom";
@@ -194,8 +195,12 @@ function confirmCard(c: ConfirmItem): HTMLElement {
 function turnView(cur: Current, t: Turn, running: boolean): HTMLElement {
   const confirms = [...cur.confirms.values()].filter((c) => c.turn === t.n);
   return h("section", { class: "turn", dataset: { turn: String(t.n) } },
-    t.input && h("div", { class: "msg user" }, h("div", { class: "bubble" },
-      t.source === "voice" && h("span", { class: "voice-tag", title: "语音输入" }, icon(Mic, 12)), t.input)),
+    (t.input || t.images?.length) && h("div", { class: "msg user" }, h("div", { class: "bubble" },
+      t.source === "voice" && h("span", { class: "voice-tag", title: "语音输入" }, icon(Mic, 12)),
+      t.images?.length && h("div", { class: "message-images" }, t.images.map((id) =>
+        h("a", { attrs: { href: api.imageUrl(cur.id, id), target: "_blank", rel: "noopener noreferrer" } },
+          h("img", { attrs: { src: api.imageUrl(cur.id, id), alt: "用户上传的图片", loading: "lazy" } })))),
+      t.input)),
     decisionStrip(t),
     activityCard(t, running),
     confirms.map(confirmCard),
@@ -209,7 +214,7 @@ function emptyState(cur: Current | null): HTMLElement {
   const skills = state.status?.skills ?? [];
   return h("div", { class: "empty" },
     h("div", { class: "welcome-kicker" }, logoMark(14), "AGENTIC DEVELOPMENT · KROVIN"),
-    h("h2", null, "让 ", h("em", null, "AI", h("span", { class: "ai-agents-word" }, " agents")), " 接手任务。", h("br"), h("span", null, "让每一步，清晰可见。")),
+    h("h2", null, "让 ", h("em", null, "AI", h("span", { class: "ai-agents-word" }, "agents")), " 接手任务。", h("br"), h("span", null, "让每一步，清晰可见。")),
     h("p", null, "计划、代码、进展，都在一个对话里。", h("br"), "把下一件事交给 KROVIN，专注你的想法。"),
     (!cur || cur.live) && h("div", { class: "suggest" },
       SUGGESTIONS.map((item) => h("button", {
@@ -237,7 +242,9 @@ export function renderMessages(): HTMLElement {
   return h("div", { class: "messages-inner" },
     turns.map((t) => turnView(cur, t, cur.busy && t.n === lastN && !t.done)),
     cur.pendingInput && h("section", { class: "turn" },
-      h("div", { class: "msg user" }, h("div", { class: "bubble" }, cur.pendingInput.text)),
+      h("div", { class: "msg user" }, h("div", { class: "bubble" },
+        cur.pendingInput.images.length > 0 && h("div", { class: "message-images" }, cur.pendingInput.images.map((url) =>
+          h("img", { attrs: { src: url, alt: "用户上传的图片" } }))), cur.pendingInput.text)),
       h("div", { class: "progress" }, icon(LoaderCircle, 14, "spin"), "收到，正在准备")),
     cur.stream === "reconnecting" && h("div", { class: "banner" }, "和面板后端的连接断了，正在重连…"));
 }

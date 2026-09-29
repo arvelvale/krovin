@@ -22,7 +22,7 @@ export interface TraceEvent {
   fallback?: boolean;
 }
 
-export interface Message { turn: number; role: "user" | "assistant"; content: string }
+export interface Message { turn: number; role: "user" | "assistant"; content: string; images?: string[] }
 export interface ReasoningItem { turn: number; step: number; model: string; text: string; truncated: boolean }
 
 export interface Working {
@@ -106,6 +106,7 @@ export interface Turn {
   n: number;
   input: string;
   source: string;
+  images?: string[];
   events: TraceEvent[];
   reasoning: ReasoningItem[];
   reply?: string;

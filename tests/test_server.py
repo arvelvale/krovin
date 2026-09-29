@@ -8,6 +8,7 @@ import pytest
 
 from agent import server as srv
 from agent.kernel import Agent
+from agent.config import Endpoint
 
 from conftest import FakeDecision, FakeLLM, noul_ans, reply
 
@@ -45,7 +46,7 @@ def running(cfg, monkeypatch):
         clients = {"local": FakeLLM("local", [
             reply(calls=[("edit_file", {"path": "app.py", "old": "sum(xs)", "new": "sum(xs) or 0"})]),
             reply("改好了"),
-        ]), "backup": FakeLLM("backup"), "cloud": FakeLLM("cloud")}
+        ]), "backup": FakeLLM("backup"), "cloud": FakeLLM("cloud"), "vision": FakeLLM("vision")}
         agent = Agent(cfg_, decision=FakeDecision(gate_low), clients=clients, **kw)
         agent.router.healthy = lambda ep, ttl=60: True
         return agent
@@ -89,6 +90,35 @@ def test_auth_required(running):
     status, data, _ = call(port, "GET", "/api/status", cookie=cookie)
     assert status == 200 and {"local", "cloud", "jev", "linear"} <= set(data["services"])
     assert any(s["name"] == "implement-change" for s in data["skills"])
+
+
+def test_image_upload_turn_history_and_auth(running):
+    app, port = running
+    app.cfg.vision = Endpoint("vision", "http://127.0.0.1:2/v1", "qwen3.8:27b")
+    cookie = login(port)
+    sid = call(port, "POST", "/api/sessions", {"tier": "local"}, cookie=cookie)[1]["id"]
+    path = f"/api/sessions/{sid}/images"
+    png = b"\x89PNG\r\n\x1a\n" + b"test-image"
+    assert call(port, "POST", path, raw=png, ctype="image/png")[0] == 401
+    assert call(port, "POST", path, raw=b"invalid", ctype="image/png", cookie=cookie)[0] == 400
+    status, uploaded, _ = call(port, "POST", path, raw=png, ctype="image/png", cookie=cookie)
+    assert status == 201
+    image_id = uploaded["id"]
+    assert call(port, "GET", f"{path}/{image_id}")[0] == 401
+    assert call(port, "POST", f"/api/sessions/{sid}/turn", {"images": ["i-" + "0" * 32]}, cookie=cookie)[0] == 400
+    app.live[sid].agent.clients["vision"].script = [reply("我看到了图片")]
+    assert call(port, "POST", f"/api/sessions/{sid}/turn", {"images": [image_id]}, cookie=cookie)[0] == 202
+    for _ in range(1000):
+        if not app.live[sid].busy:
+            break
+        threading.Event().wait(0.01)
+    assert not app.live[sid].busy
+    hist = call(port, "GET", f"/api/sessions/{sid}", cookie=cookie)[1]
+    assert hist["messages"][0]["images"] == [image_id]
+    assert hist["events"][0]["data"]["images"] == [image_id]
+    received = app.live[sid].agent.clients["vision"].received
+    assert received and received[0][-1]["content"][1]["type"] == "image_url"
+    assert "base64" not in str(hist)
 
 
 def test_json_only_and_bad_ids(running):

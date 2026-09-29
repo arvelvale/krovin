@@ -18,6 +18,7 @@ from typing import Callable
 
 from .config import Config, Endpoint
 from .context import ArchiveStore, Compressor, Conversation, WorkingState, estimate_tokens, render_messages
+from .images import ImageError, model_messages
 from .decision import DecisionClient, clip
 from .gate import ConfirmRequest, ToolGate
 from .llm import LLMClient, LLMError
@@ -113,7 +114,7 @@ class Agent:
                                            use_proxy=cfg.jev_use_proxy)
         else:
             self.decision = None
-        self.clients = clients or {ep.name: LLMClient(ep) for ep in (cfg.local, cfg.backup, cfg.cloud)}
+        self.clients = clients or {ep.name: LLMClient(ep) for ep in (cfg.local, cfg.backup, cfg.cloud, cfg.vision) if ep}
         self.registry = build_registry()
         skills, self.skill_errors = load_skills(cfg.skills_dir, set(self.registry.names()))
         self.router = ModelRouter(cfg, self.decision)
@@ -147,6 +148,7 @@ class Agent:
         if not text:
             return
         for secret in (self.cfg.local.api_key, self.cfg.backup.api_key, self.cfg.cloud.api_key,
+                       self.cfg.vision.api_key if self.cfg.vision else "",
                        self.cfg.jev_key, self.cfg.linear_key):
             if secret and len(secret) >= 6:
                 text = text.replace(secret, "[已隐藏凭据]")
@@ -192,7 +194,8 @@ class Agent:
         )
 
     def _next_endpoint(self, current: Endpoint, tried: set[str]) -> Endpoint | None:
-        order = {"local": ["backup", "cloud"], "backup": ["cloud", "local"], "cloud": ["local", "backup"]}
+        order = {"local": ["backup", "cloud"], "backup": ["cloud", "local"], "cloud": ["local", "backup"],
+                 "vision": []}
         for name in order[current.name]:
             ep = getattr(self.cfg, name)
             if name not in tried and self.router.healthy(ep):
@@ -286,16 +289,17 @@ class Agent:
         return out
 
     # ------------------------------------------------------------------
-    def run_turn(self, text: str, source: str = "text") -> TurnResult:
+    def run_turn(self, text: str, source: str = "text", images: list[str] | None = None) -> TurnResult:
         t_start = time.monotonic()
         self.trace.turn += 1
         turn = self.trace.turn
         self._drift: list[str] = []   # 本轮连续被判跑偏的写操作
         self._drift_nudged = 0
         before = self._usage_snapshot()
-        self.trace.emit("turn.start", {"input": text, "source": source})
+        images = images or []
+        self.trace.emit("turn.start", {"input": text, "source": source, "images": images})
         recent = render_messages(self.conv.messages[-6:], 1200)
-        self.conv.add({"role": "user", "content": text}, turn)
+        self.conv.add({"role": "user", "content": text, **({"images": images} if images else {})}, turn)
         if not self.working.goal:
             self.working.update(goal=clip(text, 200))
 
@@ -305,6 +309,9 @@ class Agent:
                         usage=sel.usage, fallback=sel.fallback)
 
         route: Route = self.router.route(text, sel.skills, self.force_tier)
+        # 图片使用独立视觉端点，不依赖主力/备用文字档位的面板设置。
+        if images and self.cfg.vision:
+            route = Route("local", self.cfg.vision, "图片输入使用本地视觉模型", route.scores, route.fallback)
         self.trace.emit("route.model", {"tier": route.tier, "endpoint": route.endpoint.name,
                                         "model": route.endpoint.model, "reason": route.reason,
                                         "scores": route.scores}, fallback=route.fallback)
@@ -340,9 +347,9 @@ class Agent:
             est = estimate_tokens(system) + self.conv.tokens()
             self.trace.emit("llm.start", {"tier": tier, "endpoint": ep.name, "step": step})
             try:
-                res = self.clients[ep.name].chat(messages, schemas, max_tokens=ep.max_tokens,
+                res = self.clients[ep.name].chat(model_messages(messages, self.cfg.data_dir, self.session), schemas, max_tokens=ep.max_tokens,
                                                  thinking=self.cfg.local_thinking or ep.name == "cloud")
-            except LLMError as exc:
+            except (LLMError, ImageError) as exc:
                 if not ep.needs_key:
                     self.router.mark_down(ep)
                 nxt = self._next_endpoint(ep, tried)
