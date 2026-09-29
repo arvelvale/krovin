@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>项目演示 · KROVIN</title>
+<style>
+  @font-face { font-family: "Inter"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("/inter.woff2") format("woff2"); }
+  @font-face { font-family: "Instrument Serif"; font-style: italic; font-weight: 400; font-display: swap; src: url("/instrument-serif-italic.woff2") format("woff2"); }
+
+  :root {
+    --bg: #000000; --panel: #101010; --panel-2: #1a1a1a;
+    --line: #292929; --line-2: #494949;
+    --text: #ffffff; --text-2: #d8d8d8; --text-3: #9a9a9a;
+    --silver: #e7e7e7; --run: #87c9a3;
+    --font: "Inter", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei UI", sans-serif;
+    --serif: "Instrument Serif", "Songti SC", "SimSun", serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 400 15.5px/1.95 var(--font); letter-spacing: .1px;
+    -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      repeating-linear-gradient(90deg, #ffffff05 0 1px, #0000 1px 46px),
+      radial-gradient(120% 60% at 50% -10%, #ffffff08, #0000 60%);
+  }
+  .page { position: relative; z-index: 1; max-width: 920px; margin: 0 auto; padding: 72px 28px 96px; }
+
+  .top { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); padding-bottom: 20px; }
+  .brand { display: flex; align-items: baseline; gap: 10px; font-weight: 600; font-size: 15px; letter-spacing: .2px; }
+  .brand span { color: var(--text-3); font-weight: 400; font-size: 12.5px; }
+  .top a { color: var(--text-2); text-decoration: none; font-size: 13px; border-bottom: 1px solid transparent; }
+  .top a:hover { color: var(--text); border-color: var(--line-2); }
+
+  .kicker { font-size: 11.5px; letter-spacing: .28em; color: var(--text-3); text-transform: uppercase; margin-top: 56px; }
+  .kicker b { color: var(--run); font-weight: 600; }
+  h1 { font-weight: 650; font-size: clamp(28px, 4.6vw, 40px); line-height: 1.32; letter-spacing: -.5px; margin: 16px 0 10px; text-wrap: balance; }
+  h1 em { font-family: var(--serif); font-style: italic; font-weight: 400; color: var(--silver); }
+  .sub { color: var(--text-2); font-size: 14.5px; max-width: 640px; }
+
+  .stage {
+    margin-top: 40px; border: 1px solid var(--line-2); border-radius: 14px;
+    background: var(--panel); box-shadow: 0 24px 70px rgb(0 0 0 / 55%);
+    overflow: hidden;
+  }
+  video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; }
+
+  .placeholder { display: none; padding: 96px 32px; text-align: center; color: var(--text-3); font-size: 13.5px; }
+  .placeholder b { display: block; color: var(--text-2); font-size: 15px; margin-bottom: 8px; }
+  .placeholder code { color: var(--run); font-size: 12.5px; }
+
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 22px; color: var(--text-3); font-size: 12.5px; margin-top: 18px; }
+
+  .foot { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--line); margin-top: 72px; padding-top: 18px; font-size: 12px; color: var(--text-3); }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="top">
+    <div class="brand">KROVIN <span>开发流 Agent · 项目演示</span></div>
+    <a href="https://github.com/arvelvale/krovin" target="_blank" rel="noreferrer">GitHub 仓库 ↗</a>
+  </header>
+
+  <div class="kicker"><b>DGX SPARK HACKATHON</b> · DEMO VIDEO</div>
+  <h1>两分钟，看 KROVIN <em>替人动手</em>。</h1>
+  <p class="sub">读 Linear issue、拆解、计划、开发、写日志、同步状态——每一步「选哪个」，决策轨迹里都有据可查。</p>
+
+  <div class="stage">
+    <video id="demo" controls playsinline preload="metadata" src="demo.mp4"></video>
+    <div class="placeholder" id="placeholder">
+      <b>演示视频即将上线</b>
+      剪辑完成后把成片放到本目录的 <code>demo.mp4</code>，此页面自动可播。
+    </div>
+  </div>
+
+  <div class="meta">
+    <span>视频：KROVIN 项目演示</span>
+    <span>时长：5 分钟内</span>
+    <span>报告书：<a href="/report/KROVIN-项目报告书.pdf" style="color:inherit">/report/KROVIN-项目报告书.pdf</a></span>
+    <span>征文：<a href="/essay/index.html" style="color:inherit">/essay/index.html</a></span>
+  </div>
+
+  <footer class="foot">
+    <span>KROVIN · 本地模型 · 智能调度 · 清晰可控</span>
+    <span>github.com/arvelvale/krovin</span>
+  </footer>
+</div>
+<script>
+  // 视频还没上传时（demo.mp4 404），播放器隐藏、显示占位提示
+  var v = document.getElementById("demo"), ph = document.getElementById("placeholder");
+  v.addEventListener("error", function () {
+    if (ph.style.display !== "block") { v.style.display = "none"; ph.style.display = "block"; }
+  });
+</script>
+</body>
+</html>

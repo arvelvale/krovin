@@ -384,7 +384,7 @@ def _token_configured() -> bool:
                                      for line in env_file.read_text(encoding="utf-8").splitlines())
 
 
-def daemon(action: str, port: int, remote_port: int, do_sync: bool) -> int:
+def daemon(action: str, port: int, remote_port: int, do_sync: bool, public: bool) -> int:
     """节点上的常驻面板（tmux 会话 krovin）。它不依赖本机的 SSH 连接；JEV / Linear 走固定端口的反向隧道，
     隧道断了这两项暂时不可用（写操作全改人工确认），恢复后自动可用，不用重启面板。"""
     sess = DAEMON_SESSION
@@ -421,8 +421,13 @@ def daemon(action: str, port: int, remote_port: int, do_sync: bool) -> int:
                 print(f"节点上的 {port} 端口已经有别的进程在监听（可能是评审服务 serve-for-judges 正在跑）。先停掉它，或者换 --port")
                 return 1
             proxy = f"http://127.0.0.1:{remote_port}"
+            host = "0.0.0.0" if public else "127.0.0.1"
+            url = public_url(port) if public else None
+            if public and not url:
+                print(f"提醒：节点端口 {port} 没有公网映射（只有 7000 / 8888 / 9000 有），外网打不开")
+            extra = f" --public-url {shlex.quote(url)}" if url else ""
             inner = (f"cd ~/{REMOTE_DIR} && export PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8 https_proxy={proxy} http_proxy={proxy} "
-                     f"no_proxy=127.0.0.1,localhost && exec python3 -m agent serve --host 127.0.0.1 --port {port}")
+                     f"no_proxy=127.0.0.1,localhost && exec python3 -m agent serve --host {host} --port {port}{extra}")
             rc, text = _ssh(client, f"tmux new-session -d -s {sess} {shlex.quote(inner)}")
             if rc != 0:
                 print("启动失败：" + text)
@@ -433,7 +438,11 @@ def daemon(action: str, port: int, remote_port: int, do_sync: bool) -> int:
             if rc != 0:
                 print("面板启动后马上退出了，看不到日志；用 node.py run 手动运行 python3 -m agent serve 看报错")
                 return 1
-            print(f"面板已在节点常驻（tmux {sess}，只听 127.0.0.1:{port}）。接下来运行 krovin-tunnel.bat，浏览器打开 http://127.0.0.1:9000")
+            if public:
+                print(f"面板已在节点常驻（tmux {sess}，监听 0.0.0.0:{port}）。" +
+                      (f"公网入口：{url}（静态页免登录；工作台要口令）" if url else "该端口没有公网映射，外网打不开。"))
+            else:
+                print(f"面板已在节点常驻（tmux {sess}，只听 127.0.0.1:{port}）。接下来运行 krovin-tunnel.bat，浏览器打开 http://127.0.0.1:{port}")
             return 0
     finally:
         client.close()
@@ -536,11 +545,12 @@ def main() -> int:
     dm.add_argument("--port", type=int, default=9000, help="节点上面板的端口")
     dm.add_argument("--remote-port", type=int, default=TUNNEL_PORT)
     dm.add_argument("--sync", action="store_true", help="start 之前先同步代码")
+    dm.add_argument("--public", action="store_true", help="监听 0.0.0.0，供组委会公网映射（如 :9006）访问；必须有口令")
     args = p.parse_args()
     if args.cmd == "tunnel":
         return tunnel_forever(args.remote_port, args.local_port, args.panel_port, not args.no_forward)
     if args.cmd == "daemon":
-        return daemon(args.action, args.port, args.remote_port, args.sync)
+        return daemon(args.action, args.port, args.remote_port, args.sync, args.public)
     if args.cmd == "preflight":
         return 0 if preflight() else 1
     if args.cmd == "sync":
