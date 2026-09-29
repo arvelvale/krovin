@@ -81,6 +81,7 @@ python scripts/node.py serve     # 节点上起面板 + 本机 127.0.0.1:9000 �
 **个人使用**：面板常驻节点（`krovin-panel.bat` 部署一次），日常只双击 `krovin-tunnel.bat` 维持反向隧道，浏览器开 http://127.0.0.1:9000；不同步、不上公网，详见 [docs/个人使用.md](docs/个人使用.md)。
 
 **评审期间**：双击 `serve-for-judges.bat`（自检 → 同步 → 节点自检 → 公网常驻，断线自动重连、运行期间电脑不睡眠）。
+- 参赛征文页：随面板部署在 `/essay/index.html`（静态页、免登录，公网地址即 `http://<节点地址>:9006/essay/index.html`；源文件在 `web/public/essay/index.html`，改后 `npm run build` 再 sync）。
 为什么必须有一台团队电脑开着、出问题怎么办，见 [docs/评审期间运维.md](docs/评审期间运维.md)；
 评委使用指南用 `python scripts/make_guide.py` 生成到 `deliverables/`（含口令，不入库）。
 
