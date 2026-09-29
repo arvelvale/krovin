@@ -23,11 +23,22 @@
   DELETE /api/models/providers/<id>
   POST   /api/models/providers/<id>/discover   拉取模型列表
   POST   /api/models/providers/<id>/test       {model} 发一句话试连通
+  GET    /api/workspaces                   工作区 / 笔记库列表 + 当前选中
+  POST   /api/workspaces                   {name, kind, mode: empty|clone, url?, branch?} 新建 / 克隆
+  POST   /api/workspaces/upload?name=&kind=   请求体是 zip → 导入本地文件夹
+  POST   /api/workspaces/folder?name=&kind=   开始逐文件上传 → {id}；PUT /<id>/file?path= 传文件；POST /<id>/finish 收尾
+  POST   /api/workspaces/<id>/activate|pull   设为当前 / 从 git 远端同步；DELETE /<id> 删除
+  GET    /api/workspaces/<id>/tree|file|raw|changes|zip   看目录、看文件、原始字节、相对导入快照的改动、打包下载
+  GET    /api/integrations                 Linear / Git / 引导状态（不含 Key 与令牌原文）
+  PUT    /api/integrations/linear          {api_key?, team_key, project_name}；DELETE 恢复演示配置；POST /discover 拉团队和项目
+  PUT    /api/integrations/git             {user_name, user_email}；PUT|DELETE /git/tokens/<host> 私有仓库令牌
+  PUT    /api/integrations/onboarded       {done}
 
 SSE 推送的 trace 事件就是决策轨迹原样（docs/接口/03-决策轨迹格式.md），面板和 A/B 读的是同一份数据。
 """
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import hmac
 import json
@@ -45,11 +56,12 @@ from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from .asr import AsrError, transcribe
 from .config import ROOT, Config
 from .gate import ConfirmRequest
+from .integrations import IntegrationError, IntegrationStore
 from .kernel import Agent
 from .llm import LLMClient, LLMError
 from .memory import MemoryStore
@@ -57,12 +69,18 @@ from .models import ModelConfigError, ModelStore, discover_models
 from .router import ModelRouter
 from .skills import load_skills
 from .tools import build_registry
+from .tools.base import ToolError
+from .tools.linear import LinearClient
+from .workspaces import WorkspaceError, WorkspaceStore
 
 COOKIE = "dgx_session"
 SESSION_ID = re.compile(r"^s-[\w-]{4,64}$")
 CONFIRM_TIMEOUT = 600          # 秒；超时按拒绝处理
 MAX_JSON = 1 * 1024 * 1024
 MAX_AUDIO = 12 * 1024 * 1024
+MAX_ZIP = 200 * 1024 * 1024
+MAX_FILE_UPLOAD = 20 * 1024 * 1024
+WS_ID = re.compile(r"^[a-z0-9-]{1,40}$")
 INTERNAL_PREFIX = "（系统提示）"  # kernel 注入的内部提示，不显示成用户消息
 DIST = ROOT / "web" / "dist"
 
@@ -297,6 +315,10 @@ class App:
         self.router = ModelRouter(cfg, None)
         self.models = ModelStore(cfg.models_path)
         self.memory = MemoryStore(cfg.data_dir / "memory.sqlite")
+        self.integrations = IntegrationStore(cfg.data_dir / "integrations.json")
+        self.integrations.apply(cfg)
+        self.workspaces = WorkspaceStore(cfg.data_dir, lambda: {"workspace": self.cfg.workspace, "vault": self.cfg.vault_dir},
+                                         token_for=self.integrations.git_token)
         self.agent_factory = Agent  # 测试里换成带假模型的工厂
         self._lock = threading.Lock()
 
@@ -309,10 +331,12 @@ class App:
                 **{slot: {"ok": self.router.healthy(ep), "model": ep.model, "private": ep.is_private}
                    for slot, ep in (("local", cfg.local), ("backup", cfg.backup), ("cloud", cfg.cloud))},
                 "jev": {"ok": bool(cfg.jev_key), "model": cfg.jev_model},
-                "linear": {"ok": bool(cfg.linear_key), "model": cfg.linear_project_name},
+                "linear": {"ok": bool(cfg.linear_key), "model": cfg.linear_project_name or cfg.linear_team_key},
             },
-            "workspace": cfg.workspace.name,
-            "workspace_ready": (cfg.workspace / ".git").exists(),
+            "workspace": self.active_name("workspace"),
+            "workspace_ready": (self.active_path("workspace") / ".git").exists(),
+            "vault": self.active_name("vault"),
+            "onboarded": self.integrations.onboarded,
             "workspace_resettable": self.demo_sandbox() is not None,
             "skills": [{"name": s.name, "description": s.description, "model": s.model,
                         "writes": [t for t in s.allowed_tools if reg.get(t).permission.value != "read"]}
@@ -322,8 +346,42 @@ class App:
 
     def demo_sandbox(self) -> Path | None:
         """只有演示沙盒（<data_dir>/workspace/ 下）才允许重置；指向真实仓库时返回 None。"""
-        ws, box = self.cfg.workspace.resolve(), (self.cfg.data_dir / "workspace").resolve()
+        ws, box = self.active_path("workspace").resolve(), (self.cfg.data_dir / "workspace").resolve()
         return ws if box in ws.parents else None
+
+    def _active_id(self, kind: str) -> str:
+        wid = self.integrations.active(kind)
+        try:
+            self.workspaces.get(wid, kind)
+            return wid
+        except WorkspaceError:
+            return "demo"  # 选中的那个被删了 / 丢了：回到演示环境
+
+    def active_path(self, kind: str) -> Path:
+        return self.workspaces.path(self._active_id(kind), kind)
+
+    def active_name(self, kind: str) -> str:
+        return self.workspaces.get(self._active_id(kind), kind)["name"]
+
+    def session_cfg(self, workspace_id: str | None = None) -> Config:
+        """新会话用的配置副本：把当前选中的工作区 / 笔记库固定下来，之后再切换不影响进行中的会话。"""
+        ws = self.workspaces.path(workspace_id, "workspace") if workspace_id else self.active_path("workspace")
+        return dataclasses.replace(self.cfg, workspace=ws, vault_dir=self.active_path("vault"))
+
+    def reload_integrations(self) -> None:
+        self.integrations.apply(self.cfg)
+
+    def linear_client(self, api_key: str = "", team: str = "", project: str = "") -> LinearClient:
+        return LinearClient(api_key or self.cfg.linear_key, team or self.cfg.linear_team_key, project,
+                            use_proxy=self.cfg.linear_use_proxy)
+
+    def linear_discover(self, api_key: str) -> dict:
+        lc = self.linear_client(api_key)
+        d = lc.gql("query{viewer{name email} teams(first:50){nodes{key name}} "
+                   "projects(first:100){nodes{name state teams{nodes{key}}}}}")
+        return {"user": d["viewer"]["name"], "teams": d["teams"]["nodes"],
+                "projects": [{"name": p["name"], "teams": [t["key"] for t in p["teams"]["nodes"]]}
+                             for p in d["projects"]["nodes"] if p.get("state") not in ("canceled", "completed")]}
 
     def reset_demo(self) -> str:
         """重建演示仓库（删掉重来）。评委照着文档修 DAY-298 之前点一下，每个人看到的都是同一个起点。"""
@@ -361,8 +419,9 @@ class App:
         return {"ok": True, "latency_ms": round((time.monotonic() - t0) * 1000), "reply": r.content[:40],
                 "model": r.model}
 
-    def new_session(self, use_jev: bool, tier: str | None) -> LiveSession:
-        s = LiveSession(self.cfg, use_jev, tier if tier in ("local", "cloud") else None, self.agent_factory)
+    def new_session(self, use_jev: bool, tier: str | None, workspace: str | None = None) -> LiveSession:
+        s = LiveSession(self.session_cfg(workspace), use_jev, tier if tier in ("local", "cloud") else None,
+                        self.agent_factory)
         with self._lock:
             self.live[s.id] = s
         return s
@@ -500,6 +559,10 @@ def make_handler(app: App):
                     return self._error(409, str(exc))
             if head == "models":
                 return self._models(method, parts[1:])
+            if head == "workspaces":
+                return self._workspaces(method, parts[1:], query)
+            if head == "integrations":
+                return self._integrations(method, parts[1:])
             if head == "asr" and method == "POST":
                 return self._asr(query)
             if head == "logout" and method == "POST":
@@ -517,7 +580,12 @@ def make_handler(app: App):
                     data = self._json_body()
                     if data is None:
                         return
-                    s = app.new_session(bool(data.get("use_jev", True)), data.get("tier"))
+                    wid = data.get("workspace")
+                    try:
+                        s = app.new_session(bool(data.get("use_jev", True)), data.get("tier"),
+                                            wid if isinstance(wid, str) and wid else None)
+                    except WorkspaceError as exc:
+                        return self._error(400, str(exc))
                     return self._json({"id": s.id}, 201)
                 return self._error(405, "不支持")
             sid = rest[0]
@@ -642,6 +710,135 @@ def make_handler(app: App):
                 return self._error(400, str(exc))
             app.reload_models()
             return self._json(app.models.public(cfg))
+
+        def _ws_listing(self) -> dict:
+            return {"workspaces": app.workspaces.list("workspace"), "vaults": app.workspaces.list("vault"),
+                    "active_workspace": app._active_id("workspace"), "active_vault": app._active_id("vault")}
+
+        def _workspaces(self, method: str, rest: list[str], query: dict) -> None:
+            ws = app.workspaces
+            q = lambda k, d="": (query.get(k) or [d])[0]  # noqa: E731
+            try:
+                if not rest:
+                    if method == "GET":
+                        return self._json(self._ws_listing())
+                    if method == "POST":
+                        data = self._json_body()
+                        if data is None:
+                            return
+                        kind, name = str(data.get("kind", "workspace")), str(data.get("name", ""))
+                        if data.get("mode") == "clone":
+                            view = ws.clone(name, str(data.get("url", "")), kind, str(data.get("branch", "")))
+                        else:
+                            view = ws.create_empty(name, kind)
+                        return self._json({"created": view, **self._ws_listing()}, 201)
+                    return self._error(405, "不支持")
+                if rest == ["upload"] and method == "POST":
+                    raw = self._body(MAX_ZIP)
+                    if raw is None:
+                        return
+                    view = ws.import_zip(q("name"), raw, q("kind", "workspace"))
+                    return self._json({"created": view, **self._ws_listing()}, 201)
+                if rest == ["folder"] and method == "POST":
+                    return self._json(ws.begin_upload(q("name"), q("kind", "workspace")), 201)
+                wid = rest[0]
+                if not WS_ID.match(wid):
+                    return self._error(400, "工作区编号不合法")
+                action = rest[1] if len(rest) > 1 else ""
+                if action == "" and method == "DELETE":
+                    kind = ws.get(wid)["kind"]
+                    if wid == app._active_id(kind):
+                        app.integrations.set_active(kind, "demo")
+                    ws.delete(wid)
+                    return self._json(self._ws_listing())
+                if action == "file" and method == "PUT":
+                    raw = self._body(MAX_FILE_UPLOAD)
+                    if raw is None:
+                        return
+                    ws.put_file(wid, q("path"), raw)
+                    return self._json({"ok": True})
+                if action == "finish" and method == "POST":
+                    return self._json({"created": ws.finish_upload(wid), **self._ws_listing()}, 201)
+                if action == "activate" and method == "POST":
+                    e = ws.get(wid)
+                    app.integrations.set_active(e["kind"], wid)
+                    return self._json(self._ws_listing())
+                if action == "pull" and method == "POST":
+                    ws.pull(wid)
+                    return self._json(self._ws_listing())
+                if method == "GET" and action == "tree":
+                    return self._json({"entries": ws.tree(wid, q("path"))})
+                if method == "GET" and action == "file":
+                    return self._json(ws.read(wid, q("path")))
+                if method == "GET" and action == "raw":
+                    name = Path(q("path")).name or "file"
+                    return self._send(200, ws.raw(wid, q("path")), "application/octet-stream",
+                                      {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"})
+                if method == "GET" and action == "changes":
+                    return self._json(ws.changes(wid))
+                if method == "GET" and action == "zip":
+                    name = quote(ws.get(wid)["name"] + ".zip")
+                    return self._send(200, ws.zip_bytes(wid), "application/zip",
+                                      {"Content-Disposition": f"attachment; filename*=UTF-8''{name}"})
+            except WorkspaceError as exc:
+                return self._error(400, str(exc))
+            return self._error(404, "没有这个接口")
+
+        def _integrations(self, method: str, rest: list[str]) -> None:
+            store = app.integrations
+            try:
+                if not rest and method == "GET":
+                    return self._json(store.public(app.cfg))
+                if rest == ["linear"] and method == "PUT":
+                    data = self._json_body()
+                    if data is None:
+                        return
+                    key = str(data.get("api_key") or "").strip() or (store._data.get("linear") or {}).get("api_key", "")
+                    team = str(data.get("team_key", "")).strip().upper()
+                    project = str(data.get("project_name", "")).strip()
+                    if key and team:  # 先真连一次：Key、团队、项目任何一个不对都不保存
+                        try:
+                            app.linear_client(key, team, project)._resolve()
+                        except ToolError as exc:
+                            return self._error(400, str(exc))
+                    store.set_linear(data)
+                elif rest == ["linear"] and method == "DELETE":
+                    store.clear_linear()
+                elif rest == ["linear", "discover"] and method == "POST":
+                    data = self._json_body()
+                    if data is None:
+                        return
+                    key = str(data.get("api_key") or "").strip() or (store._data.get("linear") or {}).get("api_key", "")
+                    if not key:  # 不拿演示环境的 Key 替用户查：必须是用户自己填的
+                        return self._error(400, "先填你自己的 Linear API Key")
+                    try:
+                        return self._json(app.linear_discover(key))
+                    except ToolError as exc:
+                        return self._error(400, str(exc))
+                elif rest == ["git"] and method == "PUT":
+                    data = self._json_body()
+                    if data is None:
+                        return
+                    store.set_git(data)
+                elif len(rest) == 3 and rest[:2] == ["git", "tokens"] and method in ("PUT", "DELETE"):
+                    if method == "PUT":
+                        data = self._json_body()
+                        if data is None:
+                            return
+                        store.set_token(rest[2], str(data.get("token", "")))
+                    else:
+                        store.delete_token(rest[2])
+                elif rest == ["onboarded"] and method == "PUT":
+                    data = self._json_body()
+                    if data is None:
+                        return
+                    store.set_onboarded(bool(data.get("done", True)))
+                else:
+                    return self._error(404, "没有这个接口")
+            except IntegrationError as exc:
+                return self._error(400, str(exc))
+            app.reload_integrations()
+            return self._json(store.public(app.cfg))
 
         def _asr(self, query: dict) -> None:
             fmt = (query.get("format") or ["wav"])[0]

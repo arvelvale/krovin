@@ -170,6 +170,9 @@ class Config:
     memory_extract: bool = True
     local_thinking: bool = True   # 本地主模型在主循环里是否开思考；辅助任务一律关
     asr: Endpoint | None = None   # 语音识别（阶跃），和「难题」分工位解耦：换了难题模型语音输入照常可用
+    linear_key_override: str = ""  # 面板里填的 Linear Key（优先于环境变量），见 integrations.py
+    git_name: str = ""             # 面板里填的提交身份；空 = 用 dgx-agent
+    git_email: str = ""
 
     @property
     def jev_key(self) -> str:
@@ -177,7 +180,7 @@ class Config:
 
     @property
     def linear_key(self) -> str:
-        return os.environ.get("LINEAR_API_KEY", "")
+        return self.linear_key_override or os.environ.get("LINEAR_API_KEY", "")
 
     @property
     def models_path(self) -> Path:
@@ -235,4 +238,6 @@ class Config:
         # 面板里保存过模型设置（var/models.json）就以它为准；没有则沿用上面的默认值和环境变量
         from .models import ModelStore
         ModelStore(cfg.models_path).apply(cfg)
+        from .integrations import IntegrationStore
+        IntegrationStore(cfg.data_dir / "integrations.json").apply(cfg)
         return cfg

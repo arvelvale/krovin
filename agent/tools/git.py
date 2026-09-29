@@ -80,7 +80,10 @@ def git_commit(args: dict, ctx: ToolContext) -> str:
         _git(ctx, "add", "-A")
     if not _git(ctx, "diff", "--cached", "--name-only").strip():
         raise ToolError("没有可提交的改动")
-    _git(ctx, *AGENT_IDENTITY, "commit", "-m", message)
+    ident = AGENT_IDENTITY
+    if ctx.git_identity:
+        ident = ["-c", f"user.name={ctx.git_identity[0]}", "-c", f"user.email={ctx.git_identity[1]}"]
+    _git(ctx, *ident, "commit", "-m", message)
     return _git(ctx, "log", "-1", "--stat", "--pretty=format:已提交 %h %s").strip()
 
 
