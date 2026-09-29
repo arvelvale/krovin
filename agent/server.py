@@ -1236,7 +1236,7 @@ def make_handler(app: App):
             if not DIST.exists():
                 return self._send(503, "面板还没构建：在 web/ 目录运行 npm run build".encode("utf-8"),
                                   "text/plain; charset=utf-8")
-            rel = path.lstrip("/") or "index.html"
+            rel = unquote(path).lstrip("/") or "index.html"
             target = (DIST / rel).resolve()
             if DIST.resolve() not in target.parents or not target.is_file():
                 target = DIST / "index.html"  # 单页应用回退

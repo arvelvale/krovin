@@ -290,6 +290,18 @@ def test_static_does_not_escape(running, monkeypatch, tmp_path):
     status, body, _ = call(port, "GET", "/../secret.txt")
     assert status == 200 and "secret" not in body and "面板" in body
 
+def test_static_serves_percent_encoded_filename(running, monkeypatch, tmp_path):
+    """静态路径先 URL 解码再查盘：/report/ 下的中文文件名要真下载，不能落回 index.html。"""
+    from urllib.parse import quote
+    _, port = running
+    dist = tmp_path / "dist"
+    (dist / "report").mkdir(parents=True)
+    (dist / "index.html").write_text("<html>面板</html>", encoding="utf-8")
+    (dist / "report" / "KROVIN-项目报告书.pdf").write_bytes(b"%PDF-fake")
+    monkeypatch.setattr(srv, "DIST", dist)
+    status, body, _ = call(port, "GET", "/report/" + quote("KROVIN-项目报告书.pdf"))
+    assert status == 200 and body == "%PDF-fake"
+
 
 def test_dev_no_auth_refuses_public_host(cfg):
     with pytest.raises(SystemExit, match="回环"):
