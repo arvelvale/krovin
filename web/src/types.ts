@@ -39,6 +39,8 @@ export interface ConfirmItem {
   permission: "write_local" | "external" | string;
   arguments: Record<string, unknown>;
   reason: string;
+  summary?: string; // 这次调用要做什么（人话）
+  verdict?: string; // JEV 的判断（人话）
   in_scope: number | null;
   collateral: number | null;
   created: number;
@@ -71,7 +73,7 @@ export interface SessionDetail {
   pending: ConfirmItem[];
 }
 
-export interface SessionSummary { id: string; updated: number; turns: number; title: string; live: boolean }
+export interface SessionSummary { id: string; updated: number; turns: number; title: string; live: boolean; custom?: boolean }
 
 export interface Service { ok: boolean; model: string; private?: boolean }
 

@@ -11,9 +11,10 @@ JEV 一次请求问两个 Noul（2026-09-24 实测：单个"是否必要且符�
 | write_local | 拒绝       | collateral ≥ 0.50 → 问用户；否则 in_scope ≥ 0.50 → 免确认；否则问用户 | 问用户     |
 | external    | 拒绝       | in_scope < 0.50 → 直接拒绝；否则一律问用户                             | 问用户     |
 
-全自动模式（yolo，会话级开关，等价于命令行 --yes 但可随时开关）：原本要问用户的地方一律视为同意并记 auto=True。
-不变的硬边界：技能白名单（不在 allowed-tools 里照样拒绝）、外部写 in_scope < 0.50 照样拦截、
-路径沙箱、命令白名单 / 沙箱执行、Linear 范围、agent 不 push。全自动只是「不再等人点同意」。
+全自动模式（yolo，会话级开关，可随时开关）：原本要问用户的地方改由 JEV 自己决定，全程不打扰用户，决定都记 auto=True：
+  write_local  collateral ≥ 0.50（可能误伤无关内容）→ 自动拦截；其余（含关联度一般、JEV 不可用）→ 自动放行
+  external     in_scope < 0.50 → 拦截（本来就是这样）；其余 → 自动放行
+不变的硬边界：技能白名单（不在 allowed-tools 里照样拒绝）、路径沙箱、命令白名单 / 沙箱执行、Linear 范围、agent 不 push。
 """
 from __future__ import annotations
 
@@ -21,6 +22,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
 from .decision import DecisionClient, DecisionUnavailable, clip, noul
+from .describe import explain_verdict
 from .tools.base import Permission, Tool
 
 if TYPE_CHECKING:
@@ -35,6 +37,8 @@ class ConfirmRequest:
     reason: str
     appropriate: float | None          # = in_scope
     collateral: float | None = None
+    summary: str = ""                  # 这次调用要做什么（人话）
+    verdict: str = ""                  # JEV 的判断（人话）
 
 
 @dataclass
@@ -98,17 +102,19 @@ class ToolGate:
             return None
 
     def _ask_user(self, tool: Tool, args: dict, reason: str, appropriate: float | None,
-                  collateral: float | None = None) -> bool:
+                  collateral: float | None = None, summary: str = "", fallback: bool = False) -> bool:
         if self.confirm is None:
             return False
+        verdict = explain_verdict(tool.permission.value, appropriate, collateral, fallback=fallback,
+                                  scope_threshold=self.th.gate_write, collateral_threshold=self.th.gate_collateral)
         try:
             return bool(self.confirm(ConfirmRequest(tool.name, tool.permission.value, args, reason, appropriate,
-                                                    collateral)))
+                                                    collateral, summary, verdict)))
         except Exception:
             return False
 
     def check(self, tool: Tool, args: dict, *, allowed: bool, goal: str, request: str,
-              plan: list[str] | None = None) -> GateResult:
+              plan: list[str] | None = None, summary: str = "") -> GateResult:
         if tool.permission == Permission.READ:
             return GateResult("allow", "只读工具")
         if not allowed:
@@ -127,8 +133,13 @@ class ToolGate:
             else:
                 reason = "本地写：JEV 判断不像这个请求需要的步骤，请确认"
             if self.yolo:
-                return GateResult("allow", f"全自动：{reason}（已自动同意）", scope, th, None, fallback, collateral, auto=True)
-            ok = self._ask_user(tool, args, reason, scope, collateral)
+                if collateral is not None and collateral >= self.th.gate_collateral:
+                    return GateResult("deny", f"全自动：JEV 判断可能改到与请求无关的内容（越界风险 {collateral:.0%}），已自动拦截",
+                                      scope, th, None, fallback, collateral, auto=True)
+                why = ("JEV 不可用，没发现风险" if fallback else
+                       f"JEV 觉得关联度一般（{scope:.0%}），但没发现越界风险" if scope is not None else "JEV 未发现风险")
+                return GateResult("allow", f"全自动：{why}，已自动放行", scope, th, None, fallback, collateral, auto=True)
+            ok = self._ask_user(tool, args, reason, scope, collateral, summary, fallback)
             return GateResult("confirm", reason, scope, th, ok, fallback, collateral)
         # external
         th = self.th.gate_external_deny
@@ -136,6 +147,7 @@ class ToolGate:
             return GateResult("deny", "外部写：JEV 判断与用户请求不符，已拦截", scope, th, collateral=collateral)
         reason = "外部可见写操作，一律人工确认"
         if self.yolo:
-            return GateResult("allow", f"全自动：{reason}（已自动同意）", scope, th, None, fallback, collateral, auto=True)
-        ok = self._ask_user(tool, args, reason, scope, collateral)
+            return GateResult("allow", "全自动：外部写操作经 JEV 判断与请求相符，已自动放行", scope, th, None, fallback, collateral,
+                              auto=True)
+        ok = self._ask_user(tool, args, reason, scope, collateral, summary, fallback)
         return GateResult("confirm", reason, scope, th, ok, fallback, collateral)

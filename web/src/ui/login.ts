@@ -1,6 +1,7 @@
-import { ArrowRight, Eye, EyeOff, KeyRound, ShieldCheck, Sparkles } from "lucide";
+import { ArrowRight, Eye, EyeOff, KeyRound, ShieldCheck } from "lucide";
 import { login } from "../store";
 import { h, icon } from "./dom";
+import { logoMark } from "./logo";
 
 export function renderLogin(): HTMLElement {
   const input = h("input", {
@@ -37,7 +38,7 @@ export function renderLogin(): HTMLElement {
       }
     },
   },
-  h("div", { class: "brand-mark lg" }, icon(Sparkles, 26)),
+  h("div", { class: "brand-mark lg" }, logoMark(30)),
   h("div", { class: "login-eyebrow" }, "你的工作空间，已就绪"),
   h("h1", null, "欢迎回来。"),
   h("p", { class: "login-sub" }, "用一个对话，开启下一段开发。"),
@@ -48,7 +49,7 @@ export function renderLogin(): HTMLElement {
   h("p", { class: "login-help" }, icon(ShieldCheck, 14), "口令可在团队手册或启动终端中找到"));
   setTimeout(() => input.focus(), 0);
   return h("div", { class: "login" },
-    h("div", { class: "login-brand" }, icon(Sparkles, 22), "KROVIN", h("span", null, "开发流助手")),
+    h("div", { class: "login-brand" }, logoMark(24), "KROVIN", h("span", null, "开发流助手")),
     h("div", { class: "login-layout" },
       h("section", { class: "login-story" },
         h("span", { class: "welcome-kicker" }, "AGENTIC DEVELOPMENT INFRASTRUCTURE"),

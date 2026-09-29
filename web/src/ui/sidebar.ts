@@ -1,7 +1,9 @@
-import { Brain, CircleDot, FolderGit2, LogOut, Plug, Plus, Sparkles, RotateCcw, SlidersHorizontal, X } from "lucide";
+import { Brain, CircleDot, FolderGit2, LogOut, Pencil, Plug, Plus, RotateCcw, SlidersHorizontal, Trash2, X } from "lucide";
 import { when } from "../format";
-import { createSession, logout, openSession, resetDemo, setMemoryTab, state, update } from "../store";
+import { createSession, deleteSession, logout, openSession, renameSession, resetDemo, setMemoryTab, state, update } from "../store";
 import { h, icon } from "./dom";
+import { logoMark } from "./logo";
+import type { SessionSummary } from "../types";
 import { setup } from "./setup";
 
 const SERVICE_ROWS: { key: "local" | "backup" | "cloud" | "jev" | "linear"; label: string }[] = [
@@ -13,6 +15,54 @@ const SERVICE_ROWS: { key: "local" | "backup" | "cloud" | "jev" | "linear"; labe
 ];
 
 let newSessionSwitchMotion: "on" | "off" | null = null;
+
+// 正在改名的会话。草稿放在模块变量里：状态轮询触发的整块重绘不会把已经敲的字冲掉
+let renaming: { id: string; draft: string } | null = null;
+
+function sessionRow(x: SessionSummary): HTMLElement {
+  const active = state.current?.id === x.id;
+  if (renaming?.id === x.id) {
+    const input = h("input", { class: "session-rename", attrs: { maxlength: "60", "aria-label": "会话名称", spellcheck: "false" } }) as HTMLInputElement;
+    input.value = renaming.draft;
+    const finish = (save: boolean) => {
+      const draft = renaming?.draft.trim() ?? "";
+      renaming = null;
+      if (save && draft !== x.title) void renameSession(x.id, draft);
+      else update(() => {});
+    };
+    input.addEventListener("input", () => { if (renaming) renaming.draft = input.value; });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.isComposing) finish(true);
+      else if (e.key === "Escape") { e.stopPropagation(); finish(false); }
+    });
+    input.addEventListener("blur", () => { if (renaming?.id === x.id) finish(true); });
+    input.addEventListener("click", (e) => e.stopPropagation());
+    setTimeout(() => { input.focus(); input.select(); }, 0);
+    return h("div", { class: ["session-item", "editing", active && "active"], attrs: { "data-selection-key": x.id } },
+      input, h("div", { class: "session-meta" }, "回车保存 · Esc 取消 · 留空恢复默认名字"));
+  }
+  return h("div", {
+    class: ["session-item", active && "active"], attrs: { "data-selection-key": x.id, role: "button", tabindex: "0" },
+    onclick: () => void openSession(x.id),
+    onkeydown: (e: KeyboardEvent) => { if (e.key === "Enter" && e.target === e.currentTarget) void openSession(x.id); },
+  },
+  h("div", { class: "session-title" }, x.live && h("span", { class: "dot run", title: "在线" }), x.title),
+  h("div", { class: "session-meta" }, `${x.turns} 轮 · ${when(x.updated)}`),
+  h("div", { class: "session-actions" },
+    h("button", {
+      class: "icon-btn tiny", title: "重命名", onclick: (e: MouseEvent) => {
+        e.stopPropagation();
+        renaming = { id: x.id, draft: x.custom ? x.title : x.title === "新对话" ? "" : x.title };
+        update(() => {});
+      },
+    }, icon(Pencil, 13)),
+    h("button", {
+      class: "icon-btn tiny danger", title: "删除", onclick: (e: MouseEvent) => {
+        e.stopPropagation();
+        if (window.confirm(`删除会话「${x.title}」？对话内容和决策轨迹都会一起删掉，不能恢复。`)) void deleteSession(x.id);
+      },
+    }, icon(Trash2, 13))));
+}
 
 function newSessionPanel(): HTMLElement {
   const ns = state.newSession;
@@ -50,7 +100,7 @@ export function renderSidebar(): HTMLElement {
   const sessions = state.sessions;
   return h("div", { class: "sidebar-inner" },
     h("div", { class: "brand" },
-      h("div", { class: "brand-mark" }, icon(Sparkles, 20)),
+      h("div", { class: "brand-mark" }, logoMark(22)),
       h("div", null, h("div", { class: "brand-name" }, "KROVIN"), h("div", { class: "brand-sub" }, "你的开发流助手")),
       h("button", { class: "icon-btn only-mobile", title: "收起", onclick: () => update((s) => (s.sidebarOpen = false)) },
         icon(X, 16))),
@@ -62,13 +112,7 @@ export function renderSidebar(): HTMLElement {
     h("div", { class: "session-list", attrs: { "data-selection-group": "sessions" } },
       sessions.length === 0
         ? h("div", { class: "side-empty" }, "还没有会话，新建一个试试")
-        : sessions.map((x) =>
-            h("button", {
-              class: ["session-item", state.current?.id === x.id && "active"], attrs: { "data-selection-key": x.id },
-              onclick: () => void openSession(x.id),
-            },
-            h("div", { class: "session-title" }, x.live && h("span", { class: "dot run", title: "在线" }), x.title),
-            h("div", { class: "session-meta" }, `${x.turns} 轮 · ${when(x.updated)}`)))),
+        : sessions.map(sessionRow)),
     h("div", { class: "side-foot" },
       h("button", { class: "side-link", onclick: () => { update((s) => (s.drawer = "memory")); void setMemoryTab(state.memoryTab); } },
         icon(Brain, 16), "长期记忆",

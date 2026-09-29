@@ -27,6 +27,7 @@ from . import subagents
 from .router import ModelRouter, Route
 from .skills import Selection, SkillSelector, load_skills
 from .tools import Permission, ToolContext, ToolError, build_registry, truncate
+from .describe import describe_action
 from .tools.linear import LinearClient
 from .trace import Trace
 
@@ -250,14 +251,17 @@ class Agent:
             return f"[未执行] 没有叫 {call.name} 的工具。"
         tool, declared = self._resolve_tool(tool, call.arguments)
         allowed = tool.permission == Permission.READ or tool.name in allowed_write or declared
+        summary = describe_action(tool.name, call.arguments, workspace=self.ctx.workspace,
+                                  scripts=self.ctx.skill_scripts)
         g = self.gate.check(tool, call.arguments, allowed=allowed, goal=self.working.goal, request=request,
-                            plan=[t["item"] for t in self.working.todo])
+                            plan=[t["item"] for t in self.working.todo], summary=summary)
         self._track_drift(tool, g)
         self.trace.emit("tool.gate", {
             "tool": tool.name, "permission": tool.permission.value, "decision": g.decision, "reason": g.reason,
             "appropriate": None if g.appropriate is None else round(g.appropriate, 3), "threshold": g.threshold,
             "collateral": None if g.collateral is None else round(g.collateral, 3),
-            "confirmed": g.confirmed, "auto": g.auto, "args": call.arguments}, fallback=g.fallback)
+            "confirmed": g.confirmed, "auto": g.auto, "summary": summary, "args": call.arguments},
+            fallback=g.fallback)
         if not g.execute:
             tool_log.append({"tool": tool.name, "ok": False, "denied": True})
             if g.decision == "confirm":

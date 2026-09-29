@@ -1,4 +1,4 @@
-import { Menu, PanelRight, Sparkles } from "lucide";
+import { Menu, PanelRight } from "lucide";
 import "./styles.css";
 import "./glass.css";
 import "./motion.css";
@@ -6,6 +6,7 @@ import { checkAuth, loadStatus, openSession, state, subscribe, update } from "./
 import { renderMessages } from "./ui/chat";
 import { createComposer } from "./ui/composer";
 import { h, icon, mount } from "./ui/dom";
+import { logoMark } from "./ui/logo";
 import { renderDrawer } from "./ui/drawer";
 import { renderLogin } from "./ui/login";
 import { createModelSettings } from "./ui/models";
@@ -58,7 +59,7 @@ function renderHeader(): (HTMLElement | null)[] {
   return [
     h("button", { class: "icon-btn only-mobile", title: "会话列表", onclick: () => update((s) => (s.sidebarOpen = true)) }, icon(Menu, 18)),
     h("div", { class: "chat-title" },
-      h("span", { class: "header-symbol" }, icon(Sparkles, 16)),
+      h("span", { class: "header-symbol" }, logoMark(18)),
       h("div", { class: "title-group" }, h("span", { class: "header-eyebrow" }, "KROVIN / WORKSPACE"), h("span", { class: "title-text" }, title))),
     h("button", {
       class: ["icon-btn only-narrow", state.mobileView === "trace" && "on"], title: "决策轨迹",
@@ -74,7 +75,7 @@ function render(): void {
     (state.current.turns.size > 0 || state.current.pendingInput));
   document.body.classList.toggle("workspace-reading", reading);
   if (state.authed === null) {
-    mount(root, h("div", { class: "boot" }, h("div", { class: "empty-mark" }, icon(Sparkles, 28)), "正在连接你的工作空间…"));
+    mount(root, h("div", { class: "boot" }, h("div", { class: "empty-mark" }, logoMark(30)), "正在连接你的工作空间…"));
     selectionMotion.sync();
     rubberSegments.sync();
     glassSurfaces.sync();

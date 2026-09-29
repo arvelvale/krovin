@@ -9,7 +9,8 @@
   GET    /api/sessions                     历史会话（var/runs 下全部，含命令行跑的）
   POST   /api/sessions                     {use_jev, tier, yolo, workspace} 新建在线会话
   GET    /api/sessions/<id>                轨迹 + 对话 + 工作记忆（在线会话还有待确认项）
-  PATCH  /api/sessions/<id>                {tier?, yolo?} 改模型档位 / 开关全自动（开启时把已在等的确认一并同意）
+  PATCH  /api/sessions/<id>                {tier?, yolo?, title?} 改模型档位 / 开关全自动（开启时把已在等的确认一并同意）/ 改会话名
+  DELETE /api/sessions/<id>                删除会话（轨迹和对话一并删除；正在进行的会话不能删）
   POST   /api/sessions/<id>/turn           {text, source} 开始一轮（后台执行，进度走 SSE）
   GET    /api/sessions/<id>/stream         SSE：trace / confirm / confirm_resolved / working / turn_done
   POST   /api/sessions/<id>/confirm        {id, approve} 回答写操作确认
@@ -49,6 +50,7 @@ import os
 import queue
 import re
 import secrets
+import shutil
 import subprocess
 import sys
 import threading
@@ -136,7 +138,7 @@ class LiveSession:
         done = threading.Event()
         item = {"id": cid, "turn": self.agent.trace.turn, "tool": req.tool, "permission": req.permission,
                 "arguments": req.arguments, "reason": req.reason, "in_scope": req.appropriate,
-                "collateral": req.collateral, "created": time.time()}
+                "collateral": req.collateral, "summary": req.summary, "verdict": req.verdict, "created": time.time()}
         self.pending[cid] = {"public": item, "done": done, "answer": False}
         self.publish("confirm", item)
         answered = done.wait(CONFIRM_TIMEOUT)
@@ -215,6 +217,31 @@ def load_history(data_dir: Path, sid: str) -> dict | None:
     return {"id": sid, "events": events, "messages": messages, "reasoning": reasoning}
 
 
+def _meta_path(data_dir: Path, sid: str) -> Path:
+    return data_dir / "runs" / sid / "meta.json"
+
+
+def read_title(data_dir: Path, sid: str) -> str:
+    try:
+        return str(json.loads(_meta_path(data_dir, sid).read_text(encoding="utf-8")).get("title", ""))
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return ""
+
+
+def rename_session(data_dir: Path, sid: str, title: str) -> str:
+    """给会话起名（存 runs/<id>/meta.json，不动轨迹文件）。空名字 = 清除，回到用第一句话当标题。"""
+    if not SESSION_ID.match(sid):
+        raise ValueError("会话编号不合法")
+    title = " ".join(title.split())[:60]
+    path = _meta_path(data_dir, sid)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if title:
+        path.write_text(json.dumps({"title": title}, ensure_ascii=False), encoding="utf-8")
+    else:
+        path.unlink(missing_ok=True)
+    return title
+
+
 def list_history(data_dir: Path, live: dict[str, LiveSession], limit: int = 60) -> list[dict]:
     runs = data_dir / "runs"
     out = []
@@ -237,8 +264,10 @@ def list_history(data_dir: Path, live: dict[str, LiveSession], limit: int = 60) 
                                 pass
             if turns == 0 and d.name not in live:
                 continue  # 评估脚本等只建了目录没对话的会话，不列出来
-            out.append({"id": d.name, "updated": d.stat().st_mtime, "turns": turns,
-                        "title": _clip(title, 40) or ("新对话" if d.name in live else "（空会话）"), "live": d.name in live})
+            custom = read_title(data_dir, d.name)
+            out.append({"id": d.name, "updated": d.stat().st_mtime, "turns": turns, "custom": bool(custom),
+                        "title": custom or _clip(title, 40) or ("新对话" if d.name in live else "（空会话）"),
+                        "live": d.name in live})
     for sid, s in live.items():  # 刚建、还没写轨迹的在线会话
         if not any(o["id"] == sid for o in out):
             out.insert(0, {"id": sid, "updated": time.time(), "turns": 0, "title": "新对话", "live": True})
@@ -478,6 +507,21 @@ class App:
         return {"ok": True, "latency_ms": round((time.monotonic() - t0) * 1000), "reply": r.content[:40],
                 "model": r.model}
 
+    def delete_session(self, sid: str) -> None:
+        """删除一个会话的全部落盘数据。进行中的会话不让删（删了它还会继续往里写）。"""
+        if not SESSION_ID.match(sid):
+            raise ValueError("会话编号不合法")
+        s = self.live.get(sid)
+        if s is not None and s.busy:
+            raise RuntimeError("这个会话正在进行中，等它结束再删")
+        run = (self.cfg.data_dir / "runs" / sid).resolve()
+        if run.parent != (self.cfg.data_dir / "runs").resolve():
+            raise ValueError("会话编号不合法")
+        with self._lock:
+            self.live.pop(sid, None)
+        if run.exists():
+            shutil.rmtree(run, ignore_errors=True)
+
     def new_session(self, use_jev: bool, tier: str | None, workspace: str | None = None,
                     yolo: bool = False) -> LiveSession:
         s = LiveSession(self.session_cfg(workspace), use_jev, tier if tier in ("local", "cloud") else None,
@@ -672,13 +716,26 @@ def make_handler(app: App):
                     "pending": [p["public"] for p in s.pending.values()] if s else [],
                 })
                 return self._json(hist)
+            if action == "" and method == "DELETE":
+                try:
+                    app.delete_session(sid)
+                except RuntimeError as exc:
+                    return self._error(409, str(exc))
+                return self._json({"ok": True})
+            patch = None
+            if action == "" and method == "PATCH":
+                patch = self._json_body()
+                if patch is None:
+                    return
+                if "title" in patch:  # 改名对历史会话也有效
+                    title = rename_session(app.cfg.data_dir, sid, str(patch["title"] or ""))
+                    if not ({"tier", "yolo"} & set(patch)):
+                        return self._json({"ok": True, "title": title})
             s = self._live(sid)
             if s is None:
                 return
-            if action == "" and method == "PATCH":
-                data = self._json_body()
-                if data is None:
-                    return
+            if patch is not None:
+                data = patch
                 if "yolo" in data:
                     s.set_yolo(bool(data["yolo"]))
                 if "tier" in data:

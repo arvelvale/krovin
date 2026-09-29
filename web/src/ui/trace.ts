@@ -1,6 +1,6 @@
 import {
   ArrowUpRight, Brain, Check, CircleSlash, Cloud, Cpu, FileText, Gauge, Layers, ListChecks, Route, ShieldCheck,
-  Compass, CornerDownLeft, Sparkles, TriangleAlert, Users, Wrench, X,
+  Blocks, Compass, CornerDownLeft, TriangleAlert, Users, Wrench, X,
 } from "lucide";
 import {
   DIFFICULTY_LABEL, ENDPOINT_LABEL, GATE_LABEL, ms, num, PERMISSION_LABEL, skillName, TIER_LABEL, tokens,
@@ -44,7 +44,7 @@ function skillCard(t: Turn): HTMLElement | null {
   const selected: string[] = d.selected ?? [];
   const probs = Object.entries((d.stage1?.probabilities ?? {}) as Record<string, number>).slice(0, 5);
   const fits = Object.entries((d.stage2 ?? {}) as Record<string, number>);
-  return card(Sparkles, "技能选择", mode,
+  return card(Blocks, "技能选择", mode,
     h("div", { class: "result-row" },
       selected.length ? selected.map((s) => h("span", { class: "chip skill" }, s)) : h("span", { class: "chip" }, icon(CircleSlash, 12), "不用技能"),
       d.cached ? h("span", { class: "muted small", title: "同样的问题问过 JEV，直接用了缓存结果" }, "命中缓存")
@@ -138,6 +138,8 @@ function stepItem(e: TraceEvent): HTMLElement | null {
             d.decision === "confirm" && d.confirmed !== null &&
               h("span", { class: "muted small" }, d.confirmed ? "· 你同意了" : "· 你拒绝了"),
             d.auto && h("span", { class: "tag warn", title: "全自动模式：替你点了同意" }, "全自动")),
+          d.summary && h("div", { class: "step-sub" }, d.summary),
+          d.auto && d.reason && h("div", { class: "step-sub muted" }, d.reason),
           (d.appropriate !== null || d.collateral !== null) && h("div", { class: "step-sub mono muted" },
             `合理 ${num(d.appropriate)} · 越界 ${num(d.collateral)}`)));
     }
@@ -243,8 +245,8 @@ export function renderTracePanel(): HTMLElement {
     h("h3", null, "每一步，都清晰可见。"),
     h("p", null, "对话开始后，KROVIN 的思考路径会在这里逐步展开。"),
     h("div", { class: "trace-pipeline" },
-      [[Sparkles, "选择技能", "理解意图，找到合适的能力"], [Cpu, "调度模型", "为任务选择合适的模型"], [ShieldCheck, "执行与确认", "查看工具调用和操作门控"]].map(([symbol, title, text], i) =>
-        h("div", { class: "pipeline-step" }, h("div", { class: "pipeline-icon" }, icon(symbol as typeof Sparkles, 17)),
+      [[Blocks, "选择技能", "理解意图，找到合适的能力"], [Cpu, "调度模型", "为任务选择合适的模型"], [ShieldCheck, "执行与确认", "查看工具调用和操作门控"]].map(([symbol, title, text], i) =>
+        h("div", { class: "pipeline-step" }, h("div", { class: "pipeline-icon" }, icon(symbol as typeof Blocks, 17)),
           h("div", null, h("strong", null, String(title)), h("p", null, String(text))), h("span", { class: "pipeline-number" }, `0${i + 1}`)))),
     h("div", { class: "trace-caption" }, icon(Layers, 13), "决策记录会随对话保存，可随时回看"));
   else {

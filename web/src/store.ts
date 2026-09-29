@@ -377,6 +377,30 @@ export async function answerConfirm(confirmId: string, approve: boolean): Promis
   }
 }
 
+export async function renameSession(id: string, title: string): Promise<void> {
+  try {
+    await api.renameSession(id, title);
+    await loadSessions();
+  } catch (err) {
+    fail(err);
+  }
+}
+
+export async function deleteSession(id: string): Promise<void> {
+  try {
+    await api.deleteSession(id);
+    if (state.current?.id === id) {
+      closeStream();
+      history.replaceState(null, "", location.pathname);
+      update((s) => { s.current = null; s.selectedTurn = null; });
+    }
+    await loadSessions();
+    toast("已删除这个会话");
+  } catch (err) {
+    fail(err);
+  }
+}
+
 export async function setYolo(on: boolean): Promise<void> {
   const cur = state.current;
   if (!cur?.live) return;

@@ -1,10 +1,11 @@
 import {
-  ArrowUpRight, Bot, Check, ChevronRight, Cloud, Code2, Cpu, GitPullRequest, ListChecks, LoaderCircle, Mic, ShieldAlert, Sparkles, Sun, TriangleAlert, X,
+  ArrowUpRight, Bot, Check, ChevronRight, Cloud, Code2, Cpu, GitPullRequest, ListChecks, LoaderCircle, Mic, ShieldAlert, Blocks, Sun, TriangleAlert, X,
 } from "lucide";
-import { ms, num, PERMISSION_LABEL, TIER_LABEL } from "../format";
+import { ms, PERMISSION_LABEL, TIER_LABEL } from "../format";
 import { answerConfirm, createSession, selectTurn, sortedTurns, state, type Current } from "../store";
 import type { ConfirmItem, Turn } from "../types";
 import { h, icon } from "./dom";
+import { logoMark } from "./logo";
 import { markdown } from "./markdown";
 
 const SUGGESTIONS = [
@@ -75,8 +76,8 @@ function activityItem(t: Turn, e: Turn["events"][number], running: boolean): HTM
           : h("span", { class: "activity-detail" }, "这个模型没有返回思考正文。"));
     }
     case "tool.gate":
-      title = `工具判断：${d.tool} · ${d.decision === "confirm" ? "等待确认" : d.decision === "deny" ? "未放行" : "已放行"}`;
-      detail = String(d.reason ?? "");
+      title = `工具判断：${d.tool} · ${d.decision === "confirm" ? "等待确认" : d.decision === "deny" ? (d.auto ? "JEV 自动拦截" : "未放行") : d.auto ? "JEV 自动放行" : "已放行"}`;
+      detail = String(d.summary || d.reason || "");
       break;
     case "tool.call":
       title = `${d.ok ? "已执行" : "执行失败"}：${d.tool}`;
@@ -123,7 +124,7 @@ function decisionStrip(t: Turn): HTMLElement | null {
   const gates = t.events.filter((e) => e.type === "tool.gate" && e.data.permission !== "read");
   const active = state.selectedTurn === t.n;
   return h("button", { class: ["strip", active && "active"], title: "在右侧查看这一轮的决策轨迹", onclick: () => selectTurn(t.n) },
-    h("span", { class: "chip skill" }, icon(Sparkles, 13), skills.length ? skills.join(" + ") : "不用技能"),
+    h("span", { class: "chip skill" }, icon(Blocks, 13), skills.length ? skills.join(" + ") : "不用技能"),
     tier && h("span", { class: `chip tier ${tier}` }, icon(tier === "cloud" ? Cloud : Cpu, 13), TIER_LABEL[tier] ?? tier),
     steps > 0 && h("span", { class: "chip" }, `${steps} 步`),
     gates.length > 0 && h("span", { class: "chip" }, `${gates.length} 次写操作门控`),
@@ -164,7 +165,7 @@ function scoreRow(label: string, v: number | null, danger: boolean): HTMLElement
   return h("div", { class: "mini-score" },
     h("span", null, label),
     h("span", { class: "mini-track" }, h("span", { class: ["mini-fill", danger && "danger"], style: `width:${pct}%` })),
-    h("span", { class: "mono" }, num(v)));
+    h("span", { class: "mono" }, v === null ? "—" : `${pct}%`));
 }
 
 function confirmCard(c: ConfirmItem): HTMLElement {
@@ -176,12 +177,14 @@ function confirmCard(c: ConfirmItem): HTMLElement {
   const external = c.permission === "external";
   return h("div", { class: ["confirm", external && "external"] },
     h("div", { class: "confirm-head" }, icon(ShieldAlert, 16),
-      h("span", null, external ? "这个操作别人也能看到，确认一下" : "要改动文件，确认一下"),
+      h("span", null, external ? "这个操作别人也能看到，请确认" : "下面这一步需要你点头"),
       h("span", { class: "tag" }, PERMISSION_LABEL[c.permission] ?? c.permission)),
-    h("div", { class: "confirm-tool" }, h("code", null, c.tool), h("span", { class: "confirm-reason" }, c.reason)),
+    h("p", { class: "confirm-summary" }, c.summary || `调用 ${c.tool}`),
+    h("p", { class: "confirm-verdict" }, c.verdict || c.reason),
     (c.in_scope !== null || c.collateral !== null) && h("div", { class: "confirm-scores" },
-      scoreRow("合理步骤", c.in_scope, false), scoreRow("越界风险", c.collateral, true)),
-    argPreview(c),
+      scoreRow("和请求的相关度", c.in_scope, false), scoreRow("误伤无关内容的风险", c.collateral, true)),
+    h("details", { class: "confirm-raw" },
+      h("summary", null, `查看具体内容（${c.tool}）`), argPreview(c)),
     h("div", { class: "confirm-actions" },
       h("button", { class: "btn ghost", onclick: () => void answerConfirm(c.id, false) }, "不行"),
       h("button", { class: "btn primary", onclick: () => void answerConfirm(c.id, true) }, "同意执行")));
@@ -203,7 +206,7 @@ function turnView(cur: Current, t: Turn, running: boolean): HTMLElement {
 function emptyState(cur: Current | null): HTMLElement {
   const skills = state.status?.skills ?? [];
   return h("div", { class: "empty" },
-    h("div", { class: "welcome-kicker" }, icon(Sparkles, 14), "AGENTIC DEVELOPMENT · KROVIN"),
+    h("div", { class: "welcome-kicker" }, logoMark(14), "AGENTIC DEVELOPMENT · KROVIN"),
     h("h2", null, "让 ", h("em", null, "AI", h("span", { class: "ai-agents-word" }, " agents")), " 接手任务。", h("br"), h("span", null, "让每一步，清晰可见。")),
     h("p", null, "计划、代码、进展，都在一个对话里。", h("br"), "把下一件事交给 KROVIN，专注你的想法。"),
     (!cur || cur.live) && h("div", { class: "suggest" },
@@ -220,7 +223,7 @@ function emptyState(cur: Current | null): HTMLElement {
       h("span", { class: "suggest-copy" }, h("strong", null, item.title), h("span", null, item.hint)),
       icon(ArrowUpRight, 15, "suggest-arrow")))),
     skills.length > 0 && h("details", { class: "skill-library" },
-      h("summary", null, icon(Sparkles, 13), `${skills.length} 项技能，随时待命`, icon(ChevronRight, 13)),
+      h("summary", null, icon(Blocks, 13), `${skills.length} 项技能，随时待命`, icon(ChevronRight, 13)),
       h("div", { class: "skill-cloud" }, skills.map((s) => h("span", { class: "skill-pill", title: s.description }, s.name)))));
 }
 

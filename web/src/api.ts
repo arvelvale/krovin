@@ -49,6 +49,9 @@ export const api = {
   sessions: () => request<SessionSummary[]>("GET", "/api/sessions"),
   createSession: (useJev: boolean, tier: string, yolo = false) =>
     request<{ id: string }>("POST", "/api/sessions", { use_jev: useJev, tier, yolo }),
+  renameSession: (id: string, title: string) =>
+    request<{ ok: boolean; title: string }>("PATCH", `/api/sessions/${encodeURIComponent(id)}`, { title }),
+  deleteSession: (id: string) => request<{ ok: boolean }>("DELETE", `/api/sessions/${encodeURIComponent(id)}`),
   setYolo: (id: string, yolo: boolean) =>
     request<{ tier: string; yolo: boolean }>("PATCH", `/api/sessions/${encodeURIComponent(id)}`, { yolo }),
   session: (id: string) => request<SessionDetail>("GET", `/api/sessions/${encodeURIComponent(id)}`),
