@@ -10,12 +10,14 @@ from typing import Callable
 TRACE_VERSION = 1
 
 EVENT_TYPES = {
+    "preview.ready",
     "turn.start", "skill.select", "route.model", "route.escalate", "memory.recall",
     "llm.start", "llm.call", "tool.gate", "tool.call", "context.compress", "memory.write",
     "turn.end", "error",
     "subagent.start", "subagent.end",  # 2026-09-26 新增（只增不改）
     "guard.drift",                     # 2026-09-26 新增：连续跑偏提醒
     "mode.change",                     # 2026-09-29 新增：会话里开关全自动（yolo）
+    "turn.stop",                       # 2026-09-29 新增：用户点了停止，步边界收尾
 }
 
 REQUIRED = ("v", "ts", "session", "turn", "seq", "type", "data")

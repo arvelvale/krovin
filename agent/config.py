@@ -170,7 +170,7 @@ class Config:
     memory_extract: bool = True
     local_thinking: bool = True   # 本地主模型在主循环里是否开思考；辅助任务一律关
     asr: Endpoint | None = None   # 语音识别（阶跃），和「难题」分工位解耦：换了难题模型语音输入照常可用
-    vision: Endpoint | None = None  # 图片理解独立于三个文字分工位，避免用户改备用档位后失效
+    vision: Endpoint | None = None  # 图片输入默认走节点现有的 Qwen，允许通过环境变量改模型
     linear_key_override: str = ""  # 面板里填的 Linear Key（优先于环境变量），见 integrations.py
     git_name: str = ""             # 面板里填的提交身份；空 = 用 dgx-agent
     git_email: str = ""

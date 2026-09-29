@@ -81,6 +81,7 @@ class ToolGate:
         self.th = thresholds
         self.decision = decision
         self.confirm = confirm
+        self.bypass = False
         self.yolo = False   # 全自动：不再等人确认（见模块说明）
 
     def _judge(self, tool: Tool, args: dict, goal: str, request: str,
@@ -115,6 +116,8 @@ class ToolGate:
 
     def check(self, tool: Tool, args: dict, *, allowed: bool, goal: str, request: str,
               plan: list[str] | None = None, summary: str = "") -> GateResult:
+        if self.bypass:
+            return GateResult("allow", "Bypass：用户已授权跳过执行门控", auto=True)
         if tool.permission == Permission.READ:
             return GateResult("allow", "只读工具")
         if not allowed:

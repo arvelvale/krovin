@@ -1,6 +1,6 @@
 import { ArrowUp, LoaderCircle, Mic, Square, X } from "lucide";
 import { api, ApiError } from "../api";
-import { createSession, sendTurn, setYolo, state, toast } from "../store";
+import { createSession, sendTurn, setYolo, state, stopTurn, toast } from "../store";
 import { MAX_SECONDS, Recorder, voiceSupported } from "../voice";
 import { createComposerPickers } from "./composer-pickers";
 import { h, icon, mount } from "./dom";
@@ -20,9 +20,10 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
   const images: DraftImage[] = [];
 
   const imageInput = h("input", { class: "composer-image-input", attrs: {
-    type: "file", accept: "image/*", multiple: true, "aria-label": "选择图片",
+    type: "file", accept: "image/png,image/jpeg,image/gif,image/webp", multiple: true, "aria-label": "选择图片",
   } });
   const imagePreviews = h("div", { class: "composer-attachments", attrs: { "aria-live": "polite" } });
+
   const textarea = h("textarea", {
     class: "composer-input",
     attrs: { rows: "1", placeholder: "有什么想推进的？", "aria-label": "输入任务" },
@@ -56,18 +57,28 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
     ]);
   };
 
-  imageInput.addEventListener("change", () => {
-    const selected = Array.from(imageInput.files ?? []);
+  function addImages(selected: File[]) {
+    if (sending) return;
     const valid = selected.filter((file) => ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(file.type) && file.size <= 8 * 1024 * 1024);
     const available = Math.max(0, 6 - images.length);
-    for (const file of valid.slice(0, available)) {
-      images.push({ id: ++nextImageId, file, url: URL.createObjectURL(file) });
-    }
+    for (const file of valid.slice(0, available)) images.push({ id: ++nextImageId, file, url: URL.createObjectURL(file) });
     if (valid.length < selected.length) toast("只支持 8 MB 以内的 PNG、JPEG、GIF 或 WebP 图片", "info");
-    if (valid.length > available) toast("最多预览 6 张图片", "info");
-    imageInput.value = "";
+    if (valid.length > available) toast("最多上传 6 张图片", "info");
     renderImages();
     sync();
+  }
+
+  imageInput.addEventListener("change", () => {
+    addImages(Array.from(imageInput.files ?? []));
+    imageInput.value = "";
+  });
+  textarea.addEventListener("paste", (event: ClipboardEvent) => {
+    const files = Array.from(event.clipboardData?.items ?? [])
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile()).filter((file): file is File => file !== null);
+    if (!files.length) return; // 普通文本粘贴保持浏览器原有行为
+    event.preventDefault();
+    addImages(files);
   });
 
   // 欢迎页发送时新建；历史会话发送时恢复原会话。
@@ -166,8 +177,13 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
       void submit();
     }
   });
-  sendBtn.addEventListener("click", () => void submit());
+  sendBtn.addEventListener("click", () => {
+    // 运行中这个键变成「停止」（Claude Desktop 的方形键）：点了就在步边界收尾
+    if (busy()) void stopTurn();
+    else void submit();
+  });
   micBtn.addEventListener("click", () => void toggleVoice());
+  window.addEventListener("spark:add-image", () => imageInput.click());
   window.addEventListener("spark:compose", (event) => {
     if (!state.current) return;
     textarea.value = (event as CustomEvent<string>).detail;
@@ -179,10 +195,14 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
 
   function sync() {
     const cur = state.current;
-    const disabled = busy();
+    const running = busy();
     textarea.disabled = false;
-    sendBtn.disabled = disabled || sending || (!textarea.value.trim() && !images.length) || voice !== "idle";
-    sendBtn.title = sending ? "正在上传图片" : "发送";
+    sendBtn.disabled = !running && (sending || (!textarea.value.trim() && !images.length) || voice !== "idle");
+    // 运行中：发送键变方形停止键（图标和配色跟着换，位置不动，肌肉记忆不打断）
+    sendBtn.classList.toggle("stop", running);
+    mount(sendBtn, icon(running ? Square : ArrowUp, running ? 13 : 18));
+    sendBtn.title = running ? "停止这一轮" : "发送";
+    sendBtn.setAttribute("aria-label", sendBtn.title);
     micBtn.disabled = voice === "transcribing";
     micBtn.classList.toggle("recording", voice === "recording");
     micBtn.title = voice === "recording" ? "再点一下结束录音" : "语音输入";
@@ -193,7 +213,7 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
     else if (!cur.live) hint.textContent = "输入即可接续这段会话，将恢复原工作区和上下文";
     else if (voice === "recording") mount(hint, level, `正在听 ${seconds}s · 再点一下结束（最长 ${MAX_SECONDS}s）`);
     else if (voice === "transcribing") hint.textContent = "正在把语音转成文字…";
-    else if (cur.busy) hint.textContent = "上一轮还在进行，稍等一下";
+    else if (cur.busy) hint.textContent = "正在进行中 · 点右边的方形键停止";
     else hint.textContent = "Enter 发送 · Shift + Enter 换行 · 每一步决策，都有迹可循";
   }
 

@@ -115,7 +115,6 @@ class LLMClient:
                     timeout=ep.timeout, use_proxy=ep.use_proxy, retries=retries,
                 )
             except HttpError as exc:
-                # 供应商错误可能回显请求体；图片 data URL 不能进入轨迹或界面错误。
                 safe_error = re.sub(r"data:image/[^;\s]+;base64,[A-Za-z0-9+/=]+", "[图片数据]", str(exc))
                 raise LLMError(f"{ep.name}（{ep.model}）调用失败：{safe_error}") from exc
         try:

@@ -1,11 +1,10 @@
-"""Per-session image attachments. Binary data stays out of traces and checkpoints."""
+"""Session-scoped image storage; only references enter traces and checkpoints."""
 from __future__ import annotations
 
 import base64
 import re
 import uuid
 from pathlib import Path
-
 
 MAX_IMAGE = 8 * 1024 * 1024
 MAX_IMAGES_PER_TURN = 6
@@ -70,7 +69,7 @@ def validate_images(data_dir: Path, sid: str, image_ids: object) -> list[str]:
 
 
 def model_messages(messages: list[dict], data_dir: Path, sid: str) -> list[dict]:
-    """Hydrate image references only for an OpenAI-compatible model request."""
+    """Expand references only for the model call, never in persisted conversation."""
     out = []
     for msg in messages:
         images = msg.get("images") or []

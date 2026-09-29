@@ -10,6 +10,7 @@ allowed-tools:
   - edit_file
   - run_command
   - run_in_sandbox
+  - browser_check
   - linear_update_issue
   - git_branch
   - git_commit
@@ -52,3 +53,5 @@ tags: [dev-flow, code]
 - 不改与任务无关的文件，不顺手重构
 - 不删除或跳过已有测试来让测试通过
 - 不跳过提交前的改动范围检查：每次 commit 前用 `git_status` / `git_diff` 确认只有预期文件改动
+
+网页交付前调用 `start_preview` 获取用户可访问的在线预览，再将返回的 `url` 传给 `browser_check.preview_url` 检查同一页面。只有实际渲染和关键交互通过后才能称网页可用；发现导入错误、组件返回普通对象、白屏时继续修复，不得用静态替代页掩盖 React 项目失败。

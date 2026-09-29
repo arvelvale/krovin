@@ -66,6 +66,7 @@ export interface SessionDetail {
   use_jev: boolean | null;
   tier: string | null;
   yolo?: boolean;
+  bypass?: boolean;
   workspace?: string | null; // 这个会话固定使用的工作区名字
   workspace_id?: string | null;
   events: TraceEvent[];

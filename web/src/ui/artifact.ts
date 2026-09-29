@@ -11,7 +11,7 @@ import { h, icon, mount } from "./dom";
  * iframe 一旦被重建游戏就重新开始，所以不能放在对话区里。
  */
 const HTML = /\.html?$/i;
-const ASSET = /\.(js|mjs|jsx|css|vue|svg)$/i;
+const ASSET = /\.(js|mjs|jsx|ts|tsx|css|vue|svg)$/i;
 
 export interface Artifact { path: string; others: string[] }
 
@@ -29,6 +29,8 @@ function writtenPaths(t: Turn): string[] {
 export function turnArtifacts(cur: Current, t: Turn): Artifact[] {
   if (!cur.workspaceId) return [];
   const written = writtenPaths(t);
+  if (t.events.some(e => e.type === "preview.ready") || written.some(p => /(?:package\.json|\.[jt]sx)$/.test(p)))
+    return [{path:"index.html", others:written}];
   const htmls = written.filter((p) => HTML.test(p));
   if (htmls.length) return htmls.map((path) => ({ path, others: written.filter((p) => p !== path) }));
   if (!written.some((p) => ASSET.test(p))) return [];
@@ -47,7 +49,7 @@ export function artifactCard(cur: Current, a: Artifact): HTMLElement {
     h("div", { class: "artifact-icon" }, icon(FileCode2, 20)),
     h("button", { class: "artifact-text", title: "预览", onclick: () => open("preview") },
       h("span", { class: "artifact-name" }, name),
-      h("span", { class: "artifact-sub" }, "HTML · 网页" + (a.others.length ? ` · 同时改动 ${a.others.slice(0, 3).join("、")}${a.others.length > 3 ? "…" : ""}` : ""))),
+      h("span", { class: "artifact-sub" }, "网页 · 在线预览" + (a.others.length ? ` · 同时改动 ${a.others.slice(0, 3).join("、")}${a.others.length > 3 ? "…" : ""}` : ""))),
     h("div", { class: "artifact-actions" },
       h("button", { class: "icon-btn", title: "看代码", onclick: () => open("code") }, icon(Code2, 16)),
       h("button", { class: "icon-btn primary", title: "预览", onclick: () => open("preview") }, icon(Play, 16))));
@@ -60,6 +62,7 @@ function createArtifactView() {
   let url = "";
   let file: WsFile | null = null;
   let error = "";
+  let loading = false;
 
   const title = h("span", { class: "av-title mono" });
   const tabPreview = h("button", { class: "seg-btn", onclick: () => switchTo("preview") }, "预览");
@@ -69,15 +72,16 @@ function createArtifactView() {
   const errBox = h("p", { class: "muted av-error" });
   let frame: HTMLIFrameElement | null = null;
   const close = () => update((s) => (s.drawer = null));
-  const refreshBtn = h("button", { class: "btn ghost sm", title: "agent 改完文件后点这里重新载入", onclick: () => { if (frame) frame.src = url; } },
-    icon(RefreshCw, 13), "刷新");
+  const refreshBtn = h("button", { class: "btn ghost sm", title: "agent 改完文件后点这里重新载入", onclick: () => { url = ""; void load(); } },
+    icon(RefreshCw, 13), "重新启动");
   const newTab = h("a", { class: "btn ghost sm", attrs: { target: "_blank", rel: "noopener noreferrer" } }, icon(ExternalLink, 13), "新窗口打开");
   const el = h("div", { class: "av-mask", onclick: (e: MouseEvent) => e.target === e.currentTarget && close() },
     h("div", { class: "av-panel", attrs: { role: "dialog", "aria-label": "产物预览" } },
       h("header", { class: "av-head" }, icon(FileCode2, 16), title, h("div", { class: "seg small" }, tabPreview, tabCode),
-        h("span", { class: "spacer" }), refreshBtn, newTab,
+        h("span", { class: "spacer" }), refreshBtn,
+        h("button", {class:"btn ghost sm", onclick:async () => { if(cur) { await api.stopPreview(cur.wid); url=""; error="预览已停止，点击重新启动即可恢复"; mount(frameHost); render(); } }}, "停止预览"), newTab,
         h("button", { class: "icon-btn", title: "关闭", onclick: close }, icon(X, 16))),
-      errBox, frameHost, codeHost));
+      errBox, frameHost, codeHost, h("p", {class:"muted small"}, "预览保留 2 小时；修改代码后点重新启动。预览中的本地存储为临时数据，刷新会清空。")));
 
   function render() {
     tabPreview.classList.toggle("on", mode === "preview");
@@ -86,7 +90,8 @@ function createArtifactView() {
     codeHost.style.display = mode === "code" && !error ? "block" : "none";
     refreshBtn.style.display = mode === "preview" ? "" : "none";
     errBox.textContent = error;
-    if (url) newTab.setAttribute("href", url);
+    refreshBtn.disabled = loading;
+    if (url) newTab.setAttribute("href", url); else newTab.removeAttribute("href");
     if (mode === "code") {
       if (!file) return mount(codeHost, h("p", { class: "muted drawer-empty" }, "正在读取…"));
       if (file.binary) return mount(codeHost, h("p", { class: "muted drawer-empty" }, "二进制文件，不预览"));
@@ -97,13 +102,23 @@ function createArtifactView() {
     }
   }
 
+  window.addEventListener("message", (event) => {
+    if (!frame || event.source !== frame.contentWindow || event.data?.type !== "krovin-preview-error") return;
+    error = "预览运行失败：" + String(event.data.message ?? "未知错误").slice(0, 1200);
+    render();
+  });
+
   async function load() {
-    if (!cur) return;
+    if (!cur || loading) return;
+    loading = true;
     error = "";
     try {
-      if (!url) {
-        const r = await api.previewWorkspace(cur.wid);
-        url = r.url + cur.path.split("/").map(encodeURIComponent).join("/");
+      if (!url && mode === "preview") {
+        error = "正在启动预览，首次安装依赖可能需要一两分钟…";
+        render();
+        const r = await api.startPreview(cur.wid, cur.path);
+        error = "";
+        url = r.url;
         frame = h("iframe", { class: "av-frame", title: `预览 ${cur.path}`,
           attrs: { src: url, sandbox: "allow-scripts allow-modals allow-forms allow-pointer-lock", referrerpolicy: "no-referrer" } }) as HTMLIFrameElement;
         mount(frameHost, frame);
@@ -112,7 +127,7 @@ function createArtifactView() {
     } catch (e) {
       error = e instanceof ApiError ? e.message : "读取失败，稍后再试";
       toast(error, "error");
-    }
+    } finally { loading = false; }
     render();
   }
 

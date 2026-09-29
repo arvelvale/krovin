@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import re
 import time
 import uuid
@@ -18,7 +19,7 @@ from typing import Callable
 
 from .config import Config, Endpoint
 from .context import ArchiveStore, Compressor, Conversation, WorkingState, estimate_tokens, render_messages
-from .images import ImageError, model_messages
+from .images import ImageError, model_messages, save_image
 from .decision import DecisionClient, clip
 from .gate import ConfirmRequest, ToolGate
 from .llm import LLMClient, LLMError
@@ -106,6 +107,9 @@ class Agent:
         self.archive = ArchiveStore(run_dir / "archive.jsonl")
         self.use_jev = use_jev
         self.force_tier = force_tier
+        # 用户点了「停止」：只在步之间（模型调用前）检查，工具批次执行中不打断，
+        # 否则一批 tool_calls 会缺结果、破坏与模型的配对
+        self.stop_requested = False
         if decision is not None:
             self.decision: DecisionClient | None = decision
         elif use_jev:
@@ -134,6 +138,7 @@ class Agent:
                                shell_allow=cfg.shell_allow, sandbox_tag=self.session[-8:].replace("-", ""),
                                git_identity=(cfg.git_name, cfg.git_email) if cfg.git_name and cfg.git_email else None)
         self.ratio = 1.0  # token 估算校准倍率 = 真实 prompt_tokens / 估算值
+        self.ctx.image_sink = lambda data: save_image(self.cfg.data_dir, self.session, data)
         self._current_ep = cfg.local
         self._drift: list[str] = []
         self._drift_nudged = 0
@@ -194,6 +199,11 @@ class Agent:
         )
 
     def _next_endpoint(self, current: Endpoint, tried: set[str]) -> Endpoint | None:
+        if any(m.get("images") for m in self.conv.messages):
+            candidates = [self.cfg.vision]
+            if self.cfg.cloud.model == "step-5-preview":
+                candidates.append(self.cfg.cloud)
+            return next((ep for ep in candidates if ep and ep.name not in tried and self.router.healthy(ep)), None)
         order = {"local": ["backup", "cloud"], "backup": ["cloud", "local"], "cloud": ["local", "backup"],
                  "vision": []}
         for name in order[current.name]:
@@ -214,6 +224,16 @@ class Agent:
         return dataclasses.replace(tool, permission=perm), True
 
     @property
+    def bypass(self) -> bool:
+        return self.gate.bypass
+
+    @bypass.setter
+    def bypass(self, on: bool) -> None:
+        self.gate.bypass = bool(on)
+        self._drift.clear()
+        self.trace.emit("mode.change", {"yolo": self.yolo, "bypass": self.bypass})
+
+    @property
     def yolo(self) -> bool:
         return self.gate.yolo
 
@@ -222,7 +242,7 @@ class Agent:
         on = bool(on)
         if on != self.gate.yolo:
             self.gate.yolo = on
-            self.trace.emit("mode.change", {"yolo": on})
+            self.trace.emit("mode.change", {"yolo": on, "bypass": self.bypass})
 
     def _track_drift(self, tool, g) -> None:
         """写操作的 in_scope 低于门控阈值 = JEV 认为这一步跑偏了。不管用户（或 --yes）最后有没有放行，都记一笔。"""
@@ -279,6 +299,8 @@ class Agent:
             out, ok = f"[失败] {exc}", False
         except Exception as exc:  # 工具实现的 bug 也不能打断整轮
             out, ok = f"[失败] 工具内部错误 {type(exc).__name__}: {exc}", False
+        if ok and tool.name == "start_preview":
+            self.trace.emit("preview.ready", json.loads(out))
         out, cut = truncate(out, tool.max_chars or self.cfg.tool_result_chars)
         self.trace.emit("tool.call", {"tool": tool.name, "args": call.arguments, "ok": ok,
                                       "result_chars": len(out), "truncated": cut},
@@ -289,8 +311,13 @@ class Agent:
         return out
 
     # ------------------------------------------------------------------
+    def request_stop(self) -> None:
+        """请求在当前步边界停止本轮。已 Confirm 的写操作按拒绝处理。"""
+        self.stop_requested = True
+
     def run_turn(self, text: str, source: str = "text", images: list[str] | None = None) -> TurnResult:
         t_start = time.monotonic()
+        self.stop_requested = False  # 上一轮的停止指令不带到新轮
         self.trace.turn += 1
         turn = self.trace.turn
         self._drift: list[str] = []   # 本轮连续被判跑偏的写操作
@@ -309,16 +336,17 @@ class Agent:
                         usage=sel.usage, fallback=sel.fallback)
 
         route: Route = self.router.route(text, sel.skills, self.force_tier)
-        # 图片使用独立视觉端点，不依赖主力/备用文字档位的面板设置。
-        if images and self.cfg.vision:
-            route = Route("local", self.cfg.vision, "图片输入使用本地视觉模型", route.scores, route.fallback)
+        if self.cfg.vision and any(m.get("images") for m in self.conv.messages):
+            if not (route.endpoint.name == "cloud" and route.endpoint.model == "step-5-preview"):
+                route = Route("local", self.cfg.vision, "图片输入使用节点上的 Qwen 视觉模型", route.scores, route.fallback)
         self.trace.emit("route.model", {"tier": route.tier, "endpoint": route.endpoint.name,
                                         "model": route.endpoint.model, "reason": route.reason,
                                         "scores": route.scores}, fallback=route.fallback)
 
         mem = self.memory.select(text, self.working.goal, "local" if route.endpoint.is_private else "cloud")
 
-        allowed_write: set[str] = set()
+        # 通用沙箱能力不依赖技能是否命中，执行时仍经过 JEV / 人工确认门控。
+        allowed_write: set[str] = {"run_in_sandbox", "browser_check", "start_preview"}
         for s in sel.skills:
             allowed_write.update(s.allowed_tools)
         has_scripts = any(s.scripts for s in sel.skills)
@@ -336,11 +364,19 @@ class Agent:
         tool_log: list[dict] = []
         reply, stopped, steps = "", "max_steps", 0
         while self.cfg.max_steps is None or steps < self.cfg.max_steps:
+            if self.stop_requested:
+                reply = "（已停止）你说停，我就停在这里。未完成的事我列在右侧工作记忆里，说\"继续\"就能接着来。"
+                stopped = "stopped"
+                self.trace.emit("turn.stop", {"step": steps})
+                break
             steps += 1
             step = steps
+            schemas = self.registry.schemas(self.registry.names() if self.bypass else exposed)
             system = self._system(sel, mem, ep.is_private)
             if self.compressor.maybe_compress(self.conv, estimate_tokens(system), self.working, turn, self.ratio):
                 system = self._system(sel, mem, ep.is_private)
+            if self.bypass:
+                system += "\n当前会话已开启 Bypass：所有已注册工具可用，跳过技能白名单、JEV 执行判断和逐次确认。仍须遵守工具路径边界与配置范围；任意开发命令使用 run_in_sandbox。"
             resume.save(self)
             messages = [{"role": "system", "content": system}] + self.conv.messages
             self._current_ep = ep  # 子助手在本机不可用时跟随主 agent 当前的模型
@@ -380,6 +416,14 @@ class Agent:
                     resume.save(self)
                     bad += bool(call.parse_error)
                 malformed = malformed + 1 if bad else 0
+                if self.ctx.pending_images:
+                    self.conv.add({"role": "user", "content": "（系统提示）以下是浏览器工具实际捕获的截图。请检查页面效果，结合工具报告继续验证或修复。", "images": self.ctx.pending_images[:6]}, turn)
+                    self.ctx.pending_images.clear()
+                    if not (ep.name == "cloud" and ep.model == "step-5-preview") and self.cfg.vision:
+                        self.trace.emit("route.escalate", {"from": ep.name, "to": "vision", "reason": "查看浏览器截图"})
+                        ep, tier = self.cfg.vision, "local"
+                        tried.add(ep.name)
+                    resume.save(self)
                 self._drift_nudge(turn)  # 放在整批工具结果之后，不打断 tool_calls 与结果的配对
                 if (malformed >= self.th.malformed_before_escalate and tier == "local" and not escalated
                         and "cloud" not in tried and self.router.healthy(self.cfg.cloud)):

@@ -11,11 +11,10 @@
   GET    /api/sessions/<id>                轨迹 + 对话 + 工作记忆（在线会话还有待确认项）
   PATCH  /api/sessions/<id>                {tier?, yolo?, title?} 改模型档位 / 开关全自动（开启时把已在等的确认一并同意）/ 改会话名
   DELETE /api/sessions/<id>                删除会话（轨迹和对话一并删除；正在进行的会话不能删）
-  POST   /api/sessions/<id>/images         图片原始字节 → {id, mime}（最多 8 MB/张，64 MB/会话）
-  GET    /api/sessions/<id>/images/<id>    读取本会话图片（需登录）
-  POST   /api/sessions/<id>/turn           {text, source, images?} 开始一轮（后台执行，进度走 SSE）
+  POST   /api/sessions/<id>/turn           {text, source} 开始一轮（后台执行，进度走 SSE）
   GET    /api/sessions/<id>/stream         SSE：trace / confirm / confirm_resolved / working / turn_done
   POST   /api/sessions/<id>/confirm        {id, approve} 回答写操作确认
+POST   /api/sessions/<id>/stop           停止当前轮（步边界收尾；等待中的确认按拒绝）
   GET    /api/memory?status=active|pending
   POST   /api/memory/<id>/approve    DELETE /api/memory/<id>
   POST   /api/asr?format=wav               请求体是音频字节 → {text}
@@ -80,6 +79,8 @@ from .tools.base import ToolError, safe_path
 from .tools.linear import LinearClient
 from .workspaces import WorkspaceError, WorkspaceStore
 from .sandbox import get_sandbox, SandboxError
+from .preview import get_previews
+import http.client
 
 COOKIE = "dgx_session"
 SESSION_ID = re.compile(r"^s-[\w-]{4,64}$")
@@ -152,6 +153,12 @@ class LiveSession:
         self.publish("confirm_resolved", {"id": cid, "approve": answer, "timeout": not answered})
         return answer
 
+    def set_bypass(self, on: bool) -> None:
+        self.agent.bypass = on
+        if on:
+            for cid in list(self.pending):
+                self.answer(cid, True)
+
     def set_yolo(self, on: bool) -> None:
         self.agent.yolo = on
         if on:  # 已经弹出来等着的确认卡：开了全自动就等于同意
@@ -164,6 +171,16 @@ class LiveSession:
             return False
         item["answer"] = approve
         item["done"].set()
+        return True
+
+    def request_stop(self) -> bool:
+        """停止当前轮；返回 False 表示这一轮其实已经结束了。等待中的确认卡按拒绝处理。"""
+        with self._lock:
+            if not self.busy:
+                return False
+        self.agent.request_stop()
+        for cid in list(self.pending):
+            self.answer(cid, False)
         return True
 
     def start_turn(self, text: str, source: str, images: list[str] | None = None) -> bool:
@@ -573,7 +590,7 @@ class App:
             if expected_workspace is not None and expected_workspace != plan["delete_workspace"]:
                 raise RuntimeError("工作区关联已变化，请重新打开删除确认查看清理范围")
             hist = load_history(self.cfg.data_dir, sid)
-            used_sandbox = hist and any(e.get("data", {}).get("tool") == "run_in_sandbox"
+            used_sandbox = hist and any(e.get("data", {}).get("tool") in {"run_in_sandbox", "browser_check"}
                                        for e in hist["events"])
             if used_sandbox:
                 tag = sid[-8:].replace("-", "")
@@ -588,6 +605,7 @@ class App:
                 if plan["delete_workspace"]:
                     wid = plan["workspace_id"]
                     was_active = self._active_id("workspace") == wid
+                    get_previews().stop_workspace(self.workspaces.path(wid, "workspace"))
                     self.workspaces.delete(wid)
                     if was_active:
                         self.integrations.set_active("workspace", "demo")
@@ -600,14 +618,16 @@ class App:
             return plan
 
     def new_session(self, use_jev: bool, tier: str | None, workspace: str | None = None,
-                    yolo: bool = False) -> LiveSession:
+                    yolo: bool = False, bypass: bool = False) -> LiveSession:
         with self._lock:
             s = LiveSession(self.session_cfg(workspace), use_jev, tier if tier in ("local", "cloud") else None,
                             self.agent_factory)
+            if bypass:
+                s.set_bypass(True)
             if yolo:
                 s.set_yolo(True)
             update_meta(self.cfg.data_dir, s.id, workspace_id=workspace or self._active_id("workspace"),
-                        use_jev=use_jev, tier=tier or "auto", yolo=yolo)
+                        use_jev=use_jev, tier=tier or "auto", yolo=yolo, bypass=bypass)
             self.live[s.id] = s
         return s
 
@@ -628,6 +648,7 @@ class App:
             s = LiveSession(cfg, bool(meta.get("use_jev", True)), tier if tier in ("local", "cloud") else None,
                             self.agent_factory, session=sid)
             s.set_yolo(bool(meta.get("yolo", False)))
+            s.set_bypass(bool(meta.get("bypass", False)))
             self.live[sid] = s
             return s
 
@@ -732,6 +753,8 @@ def make_handler(app: App):
             url = urlparse(self.path)
             path = url.path
             try:
+                if path.startswith("/live-preview/"):
+                    return self._live_preview(method)
                 if path.startswith("/preview/"):
                     return self._preview(path, method)
                 if not path.startswith("/api/"):
@@ -803,7 +826,7 @@ def make_handler(app: App):
                     try:
                         s = app.new_session(bool(data.get("use_jev", True)), data.get("tier"),
                                             wid if isinstance(wid, str) and wid else None,
-                                            bool(data.get("yolo", False)))
+                                            bool(data.get("yolo", False)), bool(data.get("bypass", False)))
                     except WorkspaceError as exc:
                         return self._error(400, str(exc))
                     return self._json({"id": s.id}, 201)
@@ -818,23 +841,13 @@ def make_handler(app: App):
                 except WorkspaceError as exc:
                     return self._error(409, str(exc))
                 return self._json({"id": s.id})
-            if action == "" and method == "GET":
-                hist = load_history(app.cfg.data_dir, sid) or {"id": sid, "events": [], "messages": []}
+            if action == "stop" and method == "POST":
+                if self._json_body() is None:
+                    return
                 s = app.live.get(sid)
-                if s is None and not hist["events"]:
-                    return self._error(404, "没有这个会话")
-                hist.update({
-                    "live": s is not None,
-                    "busy": bool(s and s.busy),
-                    "use_jev": s.use_jev if s else None,
-                    "tier": (s.agent.force_tier or "auto") if s else None,
-                    "yolo": bool(s.agent.yolo) if s else False,
-                    "workspace_id": app.session_workspace(sid, s)[0],
-                    "workspace": app.session_workspace(sid, s)[1],
-                    "working": s.agent.working.to_dict() if s else None,
-                    "pending": [p["public"] for p in s.pending.values()] if s else [],
-                })
-                return self._json(hist)
+                if s is None:
+                    return self._error(404, "这个会话没有在运行")
+                return self._json({"ok": True, "stopped": s.request_stop()})
             if action == "images" and len(rest) == 2 and method == "POST":
                 raw = self._body(MAX_IMAGE)
                 if raw is None:
@@ -854,6 +867,24 @@ def make_handler(app: App):
                 except ImageError as exc:
                     return self._error(404, str(exc))
                 return self._send(200, raw, mime, {"Cache-Control": "private, max-age=3600"})
+            if action == "" and method == "GET":
+                hist = load_history(app.cfg.data_dir, sid) or {"id": sid, "events": [], "messages": []}
+                s = app.live.get(sid)
+                if s is None and not hist["events"]:
+                    return self._error(404, "没有这个会话")
+                hist.update({
+                    "live": s is not None,
+                    "busy": bool(s and s.busy),
+                    "use_jev": s.use_jev if s else None,
+                    "tier": (s.agent.force_tier or "auto") if s else None,
+                    "yolo": bool(s.agent.yolo) if s else False,
+                    "bypass": bool(getattr(s.agent, "bypass", False)) if s else False,
+                    "workspace_id": app.session_workspace(sid, s)[0],
+                    "workspace": app.session_workspace(sid, s)[1],
+                    "working": s.agent.working.to_dict() if s else None,
+                    "pending": [p["public"] for p in s.pending.values()] if s else [],
+                })
+                return self._json(hist)
             if action == "cleanup" and method == "GET":
                 return self._json(app.session_cleanup(sid))
             if action == "" and method == "DELETE":
@@ -873,21 +904,23 @@ def make_handler(app: App):
                     return
                 if "title" in patch:  # 改名对历史会话也有效
                     title = rename_session(app.cfg.data_dir, sid, str(patch["title"] or ""))
-                    if not ({"tier", "yolo"} & set(patch)):
+                    if not ({"tier", "yolo", "bypass"} & set(patch)):
                         return self._json({"ok": True, "title": title})
             s = self._live(sid)
             if s is None:
                 return
             if patch is not None:
                 data = patch
+                if "bypass" in data:
+                    s.set_bypass(bool(data["bypass"]))
                 if "yolo" in data:
                     s.set_yolo(bool(data["yolo"]))
                 if "tier" in data:
                     tier = data.get("tier")
                     s.agent.force_tier = tier if tier in ("local", "cloud") else None
                 update_meta(app.cfg.data_dir, sid, tier=s.agent.force_tier or "auto", yolo=s.agent.yolo,
-                            use_jev=s.use_jev)
-                return self._json({"tier": s.agent.force_tier or "auto", "yolo": s.agent.yolo})
+                            use_jev=s.use_jev, bypass=getattr(s.agent, "bypass", False))
+                return self._json({"tier": s.agent.force_tier or "auto", "yolo": s.agent.yolo, "bypass": getattr(s.agent, "bypass", False)})
             if action == "turn" and method == "POST":
                 data = self._json_body()
                 if data is None:
@@ -994,6 +1027,39 @@ def make_handler(app: App):
             app.reload_models()
             return self._json(app.models.public(cfg))
 
+        def _live_preview(self, method: str) -> None:
+            parts = urlparse(self.path).path.split("/")
+            entry = get_previews().resolve(parts[2] if len(parts) > 2 else "")
+            if entry is None:
+                return self._send(410, "预览已关闭或过期，请重新启动预览。".encode(), "text/plain; charset=utf-8")
+            if method not in ("GET", "HEAD"):
+                return self._error(405, "当前预览仅支持页面与静态资源访问")
+            route = unquote(urlparse(self.path).path)
+            if any(x.startswith('.') and x != '.vite' for x in route.split('/')) or "/@fs/" in route or "\\" in route:
+                return self._error(403, "不允许访问这个路径")
+            conn = http.client.HTTPConnection('127.0.0.1', entry['port'], timeout=20)
+            try:
+                conn.request('GET', self.path, headers={'Accept-Encoding':'identity'})
+                resp = conn.getresponse()
+                body = resp.read(20 * 1024 * 1024 + 1)
+                if len(body) > 20 * 1024 * 1024:
+                    return self._error(413, "预览资源过大")
+                ctype = resp.getheader('Content-Type') or 'application/octet-stream'
+                if 'text/html' in ctype:
+                    # Opaque-origin iframe has no panel cookies/storage. Provide temporary storage
+                    # so localStorage-based demos can run without granting same-origin privileges.
+                    shim = b"<script>for(const k of ['localStorage','sessionStorage']){try{window[k].getItem('_')}catch{const d={};Object.defineProperty(window,k,{value:{getItem:k=>d[k]??null,setItem:(k,v)=>{d[k]=String(v)},removeItem:k=>{delete d[k]},clear:()=>{for(const k in d)delete d[k]},key:i=>Object.keys(d)[i]??null,get length(){return Object.keys(d).length}}})}}</script>"
+                    shim += b"<script>addEventListener('error',e=>{const m=e.message||('Resource failed: '+(e.target.src||e.target.href||''));parent.postMessage({type:'krovin-preview-error',message:m},'*')},true);addEventListener('unhandledrejection',e=>parent.postMessage({type:'krovin-preview-error',message:String(e.reason)},'*'))</script>"
+                    at = body.lower().find(b'<head>')
+                    body = body[:at+6] + shim + body[at+6:] if at >= 0 else shim + body
+                self._send(resp.status, body, ctype, {'Cache-Control':'no-store',
+                    'Content-Security-Policy':preview_csp(self.headers.get('Host') or ''),
+                    'Access-Control-Allow-Origin':'*', 'Referrer-Policy':'no-referrer'})
+            except (OSError, http.client.HTTPException):
+                self._send(502, "预览服务已停止，请重新启动预览。".encode(), "text/plain; charset=utf-8")
+            finally:
+                conn.close()
+
         def _preview(self, path: str, method: str) -> None:
             if method not in ("GET", "HEAD"):
                 return self._error(405, "不支持")
@@ -1044,6 +1110,8 @@ def make_handler(app: App):
                     kind = ws.get(wid)["kind"]
                     if wid == app._active_id(kind):
                         app.integrations.set_active(kind, "demo")
+                    if kind == "workspace":
+                        get_previews().stop_workspace(ws.path(wid, "workspace"))
                     ws.delete(wid)
                     return self._json(self._ws_listing())
                 if action == "file" and method == "PUT":
@@ -1058,6 +1126,19 @@ def make_handler(app: App):
                     e = ws.get(wid)
                     app.integrations.set_active(e["kind"], wid)
                     return self._json(self._ws_listing())
+                if action == "live-preview" and method == "POST":
+                    data = self._json_body()
+                    if data is None: return
+                    if ws.get(wid)["kind"] != "workspace":
+                        return self._error(400, "只有工作区能预览")
+                    try:
+                        return self._json(get_previews().start(ws.path(wid, "workspace"), str(data.get("path") or '/')))
+                    except ToolError as exc:
+                        return self._error(400, str(exc))
+                if action == "live-preview" and method == "DELETE":
+                    if self._json_body() is None: return
+                    get_previews().stop_workspace(ws.path(wid, "workspace"))
+                    return self._json({"ok": True})
                 if action == "preview" and method == "POST":
                     if ws.get(wid)["kind"] != "workspace":
                         return self._error(400, "只有工作区能预览")
@@ -1166,7 +1247,7 @@ def make_handler(app: App):
             extra = {"Cache-Control": cache}
             if target.name == "index.html":
                 extra["Content-Security-Policy"] = (
-                    "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+                    "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
                     "media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'")
             self._send(200, target.read_bytes(), ctype, extra)
 

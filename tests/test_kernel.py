@@ -55,7 +55,7 @@ def test_read_only_turn(cfg, monkeypatch):
     ], decision=pick(None))
     res = agent.run_turn("README 里写了什么")
     assert res.stopped == "final" and "demo add" in res.reply and res.skills == [] and res.tier == "local"
-    # 没命中技能：只暴露只读工具
+    # 没命中技能：只读与受门控的通用沙箱工具可用，编辑文件仍需要技能授权。
     assert "edit_file" not in clients["local"].tools_seen[0] and "read_file" in clients["local"].tools_seen[0]
     # 工具结果回填给了模型
     assert any(m["role"] == "tool" and "demo add" in m["content"] for m in clients["local"].received[1])
@@ -65,6 +65,78 @@ def test_read_only_turn(cfg, monkeypatch):
     assert types[0] == "turn.start" and types[-1] == "turn.end"
     assert {"skill.select", "route.model", "memory.recall", "llm.call", "tool.gate", "tool.call"} <= set(types)
     assert [e["seq"] for e in evs] == sorted(e["seq"] for e in evs)
+
+
+def test_browser_without_skill_returns_screenshot_to_vision(cfg, monkeypatch):
+    from agent.config import Endpoint
+    cfg.vision = Endpoint('vision', 'http://127.0.0.1:2/v1', 'qwen3.8:27b')
+    agent, clients = make_agent(cfg, monkeypatch, [reply(calls=[('browser_check', {})])], decision=pick(None))
+    clients['vision'] = FakeLLM('vision', [reply('已查看截图，页面正常')])
+    def capture(args, ctx):
+        ctx.pending_images.append(ctx.image_sink(b'\x89PNG\r\n\x1a\n' + b'test'))
+        return '浏览器检查完成'
+    agent.registry.get('browser_check').handler = capture
+    result = agent.run_turn('启动开发服务，检查页面')
+    assert result.stopped == 'final' and not result.skills
+    assert 'browser_check' in clients['local'].tools_seen[0]
+    assert 'run_in_sandbox' in clients['local'].tools_seen[0]
+    messages = clients['vision'].received[0]
+    assert messages[-2]['role'] == 'tool'
+    assert messages[-1]['content'][1]['type'] == 'image_url'
+    assert not agent.ctx.pending_images
+
+
+def test_stop_between_steps(cfg, monkeypatch):
+    """工具批次跑完、下一步模型调用前收到停止：步边界收尾，不继续调模型。"""
+    holder = {}
+
+    def confirm(req):
+        holder["agent"].request_stop()  # 用户在这个写操作的确认卡上点了「停止」
+        return False  # 停止时等待中的确认按拒绝处理
+
+    clients = {"local": FakeLLM("local", [
+        reply(calls=[("edit_file", {"path": "app.py", "old": "sum(xs)", "new": "sum(xs) or 0"})]),
+        reply("不会走到这一步"),
+    ]), "backup": FakeLLM("backup", []), "cloud": FakeLLM("cloud", [])}
+    agent = Agent(cfg, decision=pick("implement_change", appropriate=0.3), clients=clients,
+                  confirm=confirm, use_jev=True)
+    holder["agent"] = agent
+    monkeypatch.setattr(agent.router, "healthy", lambda ep, ttl=60: True)
+
+    res = agent.run_turn("把 total 兜个底")
+    assert res.stopped == "stopped" and "已停止" in res.reply
+    assert len(clients["local"].received) == 1  # 第一批工具之后没有再调模型
+    assert "or 0" not in (cfg.workspace / "app.py").read_text(encoding="utf-8")
+    types = [e["type"] for e in events(agent)]
+    assert "turn.stop" in types and types[-1] == "turn.end"
+    assert all(not validate_event(e) for e in events(agent))
+
+
+def test_stop_flag_resets_next_turn(cfg, monkeypatch):
+    """上一轮的停止指令不带到下一轮：停过一次之后还能正常继续。"""
+    holder = {}
+
+    def confirm(req):
+        if holder.get("stop_now"):
+            holder["agent"].request_stop()
+            return False
+        return True
+
+    clients = {"local": FakeLLM("local", [
+        reply(calls=[("edit_file", {"path": "app.py", "old": "sum(xs)", "new": "sum(xs) or 0"})]),
+        reply("继续轮的正常回复"),
+    ]), "backup": FakeLLM("backup", []), "cloud": FakeLLM("cloud", [])}
+    agent = Agent(cfg, decision=pick("implement_change", appropriate=0.3), clients=clients,
+                  confirm=confirm, use_jev=True)
+    holder["agent"] = agent
+    monkeypatch.setattr(agent.router, "healthy", lambda ep, ttl=60: True)
+
+    holder["stop_now"] = True
+    first = agent.run_turn("把 total 兜个底")
+    assert first.stopped == "stopped"
+    holder["stop_now"] = False
+    second = agent.run_turn("继续")
+    assert second.stopped == "final" and second.reply == "继续轮的正常回复"
 
 
 def test_skill_loads_body_and_write_tools(cfg, monkeypatch):

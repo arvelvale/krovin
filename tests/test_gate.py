@@ -84,3 +84,14 @@ def test_gate_state_carries_plan_and_clips_long_args():
             goal="g", request="r", plan=["写测试"])
     state = g.decision.calls[0][0]
     assert state["plan"] == ["写测试"] and len(state["arguments"]["content"]) < 1600
+
+
+@pytest.mark.parametrize("tool", ["edit_file", "run_in_sandbox", "linear_create_issue"])
+def test_bypass_skips_whitelist_judge_and_confirmation(tool):
+    g, asked = gate_with(0.0, collateral=1.0)
+    g.bypass = True
+    result = check(g, tool, allowed=False)
+    assert result.execute and result.auto
+    assert not asked and not g.decision.calls
+    g.bypass = False
+    assert not check(g, tool, allowed=False).execute

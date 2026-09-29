@@ -41,7 +41,7 @@ def estimate_tokens(text: str) -> int:
 
 def message_tokens(msg: dict) -> int:
     total = 4 + estimate_tokens(msg.get("content") or "")
-    total += 1200 * len(msg.get("images") or [])  # 图片视觉 token 随尺寸变化；这里只做保守预算
+    total += 1200 * len(msg.get("images") or [])
     for call in msg.get("tool_calls") or []:
         total += 8 + estimate_tokens(call["function"].get("arguments") or "")
     return total

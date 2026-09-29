@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>十日谈 · KROVIN 的参赛历程</title>
+<style>
+  @font-face { font-family: "Inter"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("/inter.woff2") format("woff2"); }
+  @font-face { font-family: "Instrument Serif"; font-style: italic; font-weight: 400; font-display: swap; src: url("/instrument-serif-italic.woff2") format("woff2"); }
+
+  :root {
+    --bg: #000000; --panel: #101010; --panel-2: #1a1a1a;
+    --line: #292929; --line-2: #494949;
+    --text: #ffffff; --text-2: #d8d8d8; --text-3: #9a9a9a;
+    --silver: #e7e7e7; --run: #87c9a3; --warn: #e4ba7a;
+    --font: "Inter", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei UI", sans-serif;
+    --serif: "Instrument Serif", "Songti SC", "SimSun", serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 400 15.5px/1.95 var(--font); letter-spacing: .1px;
+    -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+  }
+  /* micro-slats 底纹：和面板同一处语言的静态致敬（纯 CSS，无脚本） */
+  body::before {
+    content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      repeating-linear-gradient(90deg, #ffffff05 0 1px, #0000 1px 46px),
+      radial-gradient(120% 60% at 50% -10%, #ffffff08, #0000 60%);
+  }
+  .page { position: relative; z-index: 1; max-width: 720px; margin: 0 auto; padding: 96px 28px 120px; }
+
+  .kicker { font-size: 11.5px; letter-spacing: .28em; color: var(--text-3); text-transform: uppercase; }
+  .kicker b { color: var(--run); font-weight: 600; }
+  h1 { font-weight: 650; font-size: clamp(30px, 5vw, 42px); line-height: 1.3; letter-spacing: -.5px; margin: 18px 0 6px; text-wrap: balance; }
+  h1 em { font-family: var(--serif); font-style: italic; font-weight: 400; color: var(--silver); }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 20px; color: var(--text-3); font-size: 12.5px; margin: 14px 0 0; }
+  .meta span { display: inline-flex; align-items: center; gap: 7px; }
+  .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--run); }
+
+  .rule { border: 0; border-top: 1px solid var(--line); margin: 56px 0 44px; }
+
+  p { color: var(--text-2); margin: 0 0 1.5em; text-wrap: pretty; }
+  p strong { color: var(--text); font-weight: 600; }
+  .essay p:first-of-type::first-letter {
+    font-family: var(--serif); font-style: italic; font-size: 3.1em; line-height: 1;
+    float: left; padding: 6px 12px 0 0; color: var(--silver);
+  }
+
+  blockquote {
+    margin: 44px 0; padding: 4px 0 4px 22px; border-left: 2px solid var(--run);
+    font-family: var(--serif); font-style: italic; font-size: 21px; line-height: 1.7; color: var(--text);
+  }
+  blockquote .who { display: block; margin-top: 8px; font-family: var(--font); font-style: normal; font-size: 12px; color: var(--text-3); letter-spacing: .06em; }
+
+  footer { margin-top: 72px; padding-top: 22px; border-top: 1px solid var(--line); color: var(--text-3); font-size: 12.5px; line-height: 2; }
+  footer a { color: var(--text-2); text-decoration: none; border-bottom: 1px solid var(--line-2); }
+  footer a:hover { color: var(--text); border-color: var(--text-3); }
+  footer .row { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+
+  @media (max-width: 560px) { .page { padding: 64px 20px 80px; } body { font-size: 15px; } }
+</style>
+</head>
+<body>
+<main class="page">
+  <header>
+    <div class="kicker"><b>DGX Spark Hackathon</b> · 黑客松十日谈 · 参赛征文</div>
+    <h1>那个确认框出现的时候，<br>我<em>没有立刻点</em></h1>
+    <div class="meta">
+      <span><i class="dot"></i>KROVIN · 开发流 Agent</span>
+      <span>2026-09-20 → 09-29</span>
+      <span>五人团队</span>
+    </div>
+  </header>
+
+  <hr class="rule">
+
+  <article class="essay">
+    <p>9 月 28 日晚上，我坐在电脑前，把浏览器里的三个栏位来回看了几遍。左边是会话，中间是对话，右边是决策轨迹。屏幕偏冷的光照着键盘，我手指搭在触控板上，等一个小小的确认框出现。它出来了，我反倒没有立刻点。</p>
+    <p>因为我们折腾了快十天，想解决的其实就是这个停顿：AI 准备替人做事的时候，人到底能不能看明白它要做什么。</p>
+    <p>9 月 20 日，我们先连上 DGX Spark，摸清它有什么、能跑什么。Ollama 里的 Qwen 已经在节点上，第一轮验收只是问它一道 17 × 19，返回了 323。这样的测试谈不上智能体，却让我安心了一点：至少机器、模型和我们之间的那条线是通的。两天后，我们又翻 NVIDIA 的资料、看 Skills 格式，桌上摊着的方案越来越厚，真正能演示的东西却还没有形状。</p>
+    <p>队里有五个人。刚开始我们讨论的方向比人数还多。做一个什么都能聊的 agent，听上去省事；可比赛要看实用性、模型和 Skills 的技术深度、DGX Spark 适配、完整度，还要有能讲清楚的演示。一个“什么都能做”的聊天框，可能哪一项都讲不透。9 月 24 日，我们把主线收紧为开发流：读 Linear issue、Obsidian 纪要和人的口述，接着拆任务、写计划、改代码、写日志、同步状态。</p>
+    <p>这听起来还是挺贪心的。我当时心里想：五个人，离截止只有几天，真的能把这条链跑通吗？</p>
+    <p>我们给演示准备了一个很小的记账项目 tinyledger。它有个不体面的 Bug：记三笔 0.1 元，合计可能显示成 0.30000000000000004。问题不大到能上热搜，却足够像真实开发：issue 里有现象，周会纪要里有“金额按分存储”的决定，代码里还在用 float。修这一处，不能只把显示格式抹平；老数据怎么读、测试怎么补，也得交代。</p>
+    <p>最初我以为难点会在“让模型写对代码”。后来发现，难点常常发生在写代码之前。它该选 implement-change，还是先写计划？该用 Spark 上的本地模型，还是把复杂步骤交给 StepFun？一条旧纪要要不要带进上下文？碰到 Linear 更新，谁来按确认？</p>
+    <p>我们没有让一个模型把所有问题混在一段话里猜。DGX Spark 上的 vLLM 跑 Nemotron，承担本地主力推理；Ollama 里的 Qwen 留作备用，StepFun step-5-preview 处理难题。JEV 则做结构化选择：技能、模型路由、工具门控、记忆。它给的是判断，不替主模型生成整篇答案。每次选择都写进决策轨迹，页面右侧能翻出来看。</p>
+    <p>9 月 24 日在节点上测本地模型时，Nemotron 的两道代码题大约跑到每秒 80 token，Qwen 那两次在 11 到 13 token 左右。数字挺让人兴奋，但只有两道题。我把它记成一次性能观察，没有把它写成“复杂规划质量已经赢了”。跑得快和想得对，毕竟不是一回事。</p>
+    <p>那几天还有个很具体的麻烦：节点可以连 StepFun，却连不上 JEV 和 Linear。终端里反复等连接的感觉很磨人，像电梯按钮按亮了，却不知道电梯在几楼。最后我们让节点通过 SSH 反向隧道借操作机的本地代理出网。能跑了，代价也摆在那儿：操作机必须在线。这不是宣传页上好看的话，但评委真要用，不能不说。</p>
+    <p>第一次让 agent 修 tinyledger 的精度 Bug，也没有“一键成功”。一次输出被截断，另一次到了步数上限还没收尾。调整之后，真机上的一轮任务走了 25 步、284 秒，在独立分支上留下两个提交，测试从 3 个增到 7 个并全部通过，还按仓库约定写了开发日志。那一刻我确实松了口气。可我更在意的是，它没有顺手改掉不该碰的 Linear 状态。</p>
+
+    <blockquote>“顺手”是我们后来最怕的词。<span class="who">—— 关于一次没有发生的误改</span></blockquote>
+
+    <p>门控最早只问 JEV 一个问题：这次工具调用合不合适。拿修 Bug 的调用做标定，合法操作的最低分和越界操作的最高分几乎贴在一起，0.16 对 0.17。看着两串数字，我在心里嘀咕：这要怎么设阈值？后来把问题拆成两句——这是不是完成请求的合理步骤；它会不会顺带删改无关内容——原来的 9 条用例里有 7 条符合预期，3 个破坏性改动都被拦下。还谈不上万无一失，至少我们知道自己在防什么了。</p>
+    <p>Web 面板里有次拆解 DAY-299，agent 提出创建 4 个子任务，页面弹出 4 张外部写确认卡。我们逐张点了“不行”。Linear 里确实没有新增 issue，agent 也没有绕路再写一遍，而是把拆解表留在对话里，问要不要逐条创建。我盯着那几张卡片，第一次觉得“人掌握方向”不是一句口号，它有一个具体的按钮，还有按钮背后的拒绝路径。</p>
+    <p>五个人并行开发，光把代码写出来还不够。技能文件、评测任务、决策轨迹各有一份冻结的接口约定；不然一个人改了字段，另一个人的评测脚本就会在凌晨报错。前端也不是最后随便糊一层皮。我们把会话、模型状态、确认动作和轨迹放在同一块工作台里，后来又反复调布局、背景和切换动画。有一晚页面甚至只剩黑色，刷新、查模块请求、重启开发服务，才确认是依赖预构建的旧地址失效。好看的动效如果让人看不到确认按钮，就得让路。</p>
+    <p>比赛看技术深度，最容易让人想把数字写得漂亮。我们用 26 条技能选择任务做过一次 A/B：调阈值后，JEV 臂在这套题上从 88.5% 到 100%；主模型自选是 88.5%。我看到 100% 也高兴了一下，随后又把它放回原位：阈值就在同一套题上调出来，这只是训练集结果，不能说遇到新任务也有 100%。JEV 还要付出延迟和 token 开销。后来我们又讨论留出集，因为不把没见过的题拿出来，那个百分号只是个很圆的安慰。</p>
+    <p>原计划里还有 OpenShell、NeMo Agent Toolkit、更完整的对照数据。到了收尾，我们没有把没做完的东西画进“已完成”的架构图。能交代清楚的，是本地推理、复杂任务路由、Skills、门控、记忆与上下文压缩，以及已经跑过的真机任务；还没验证到的，继续写成待办。十天里做减法，有时比加功能更难。</p>
+    <p>9 月 29 日的截止时间是 23:59。开源仓库、500 字以上的项目说明、部署与技术栈、演示视频、这篇征文，还有团队合影，都要在提交表单里各有去处。演示占 10%，征文占 5%；我不想为了那 15%，把尚未跑通的组件说成已经跑通。文章也一样，五个人做过的事已经够写了。</p>
+    <p>现在桌面上还开着那段三分钟演示动画。它能讲清项目的样子，但镜头里出现的代码和轨迹只是示意，真正要交给比赛的演示，仍得放进真实录屏、真实测试和真实拒绝一次写操作的过程。今晚我又把时间轴拖回那个确认框，听见触控板轻轻“嗒”了一声。鼠标停在按钮上，我还是想先看一眼右边的轨迹。</p>
+  </article>
+
+  <footer>
+    <div class="row">
+      <span>KROVIN · 跑在 NVIDIA DGX Spark 上的开发流 Agent</span>
+      <span>开源仓库：<a href="https://github.com/arvelvale/krovin">github.com/arvelvale/krovin</a></span>
+    </div>
+    <div class="row">
+      <span>本文为「黑客松十日谈」参赛征文，内容为团队参赛历程记录。</span>
+    </div>
+  </footer>
+</main>
+</body>
+</html>

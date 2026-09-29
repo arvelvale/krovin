@@ -189,6 +189,39 @@ def test_turn_with_web_confirmation(running, cfg):
     assert listing[0]["id"] == sid and listing[0]["title"] == "把 total 改一下" and listing[0]["live"]
 
 
+def test_stop_turn_via_http(running, cfg):
+    """运行中点「停止」：确认卡按拒绝处理，轮次在步边界收尾，不再调用模型。"""
+    app, port = running
+    cookie = login(port)
+    sid = call(port, "POST", "/api/sessions", {"use_jev": True, "tier": "auto"}, cookie=cookie)[1]["id"]
+    calls = {"n": 0}
+    base_calls = len(app.live[sid].agent.clients["local"].received)
+
+    def on_event(kind, data):
+        if kind == "confirm":
+            # 确认卡弹出的这一刻用户点了「停止」：卡按拒绝，内核步边界收尾
+            status, body, _ = call(port, "POST", f"/api/sessions/{sid}/stop", {}, cookie=cookie)
+            assert status == 200 and body["stopped"] is True
+        if kind == "trace" and data["type"] == "llm.start":
+            calls["n"] += 1
+
+    threading.Timer(0.3, lambda: call(port, "POST", f"/api/sessions/{sid}/turn",
+                                      {"text": "把 total 改一下"}, cookie=cookie)).start()
+    events = read_sse(port, sid, cookie, {"turn_done"}, on_event)
+    done = dict(events)["turn_done"]
+    assert done["stopped"] == "stopped" and "已停止" in done["reply"]
+    assert calls["n"] == 1  # 第一批工具之后没有再调模型
+    assert "or 0" not in (cfg.workspace / "app.py").read_text(encoding="utf-8")  # 被拒了，没写进去
+    trace_types = [data["type"] for kind, data in events if kind == "trace"]
+    assert "turn.stop" in trace_types and trace_types[-1] == "turn.end"
+
+    # 轮次已结束：再点停止返回 stopped=false，不报错
+    status, body, _ = call(port, "POST", f"/api/sessions/{sid}/stop", {}, cookie=cookie)
+    assert status == 200 and body["stopped"] is False
+    # 没有这个在线会话：404
+    assert call(port, "POST", "/api/sessions/s-not-live/stop", {}, cookie=cookie)[0] == 404
+
+
 def test_reasoning_reaches_stream_and_history_without_entering_trace(running):
     app, port = running
     cookie = login(port)
@@ -421,3 +454,28 @@ def test_resume_refuses_missing_original_workspace(running):
     app.workspaces.delete(wid)
     assert call(port,'POST',f'/api/sessions/{s.id}/resume',{},cookie)[0]==409
     assert s.id not in app.live
+
+
+def test_bypass_http_persistence_and_switch(running):
+    app, port = running
+    cookie = login(port)
+    sid = call(port, "POST", "/api/sessions", {"bypass": True}, cookie=cookie)[1]["id"]
+    assert app.live[sid].agent.bypass
+    assert call(port, "GET", f"/api/sessions/{sid}", cookie=cookie)[1]["bypass"]
+    app.live.pop(sid)
+    resumed = app.resume_session(sid)
+    assert resumed.agent.bypass
+    body = call(port, "PATCH", f"/api/sessions/{sid}", {"bypass": False, "yolo": True}, cookie=cookie)[1]
+    assert not body["bypass"] and body["yolo"]
+
+def test_live_preview_requires_token_and_blocks_hidden_files(running, monkeypatch):
+    from types import SimpleNamespace
+    import agent.server as server
+    app, port = running
+    manager = SimpleNamespace(resolve=lambda token: {'port':1} if token == 'scoped' else None)
+    monkeypatch.setattr(server, 'get_previews', lambda:manager)
+    assert call(port,'GET','/live-preview/missing/')[0] == 410
+    assert call(port,'GET','/live-preview/scoped/.env')[0] == 403
+    assert call(port,'GET','/live-preview/scoped/%2e%2e/.env')[0] == 403
+    assert call(port,'GET','/live-preview/scoped/@fs/etc/passwd')[0] == 403
+    assert call(port,'GET','/live-preview/scoped/')[0] == 502
