@@ -15,6 +15,7 @@ EVENT_TYPES = {
     "turn.end", "error",
     "subagent.start", "subagent.end",  # 2026-09-26 新增（只增不改）
     "guard.drift",                     # 2026-09-26 新增：连续跑偏提醒
+    "mode.change",                     # 2026-09-29 新增：会话里开关全自动（yolo）
 }
 
 REQUIRED = ("v", "ts", "session", "turn", "seq", "type", "data")

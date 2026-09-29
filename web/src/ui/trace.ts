@@ -136,7 +136,8 @@ function stepItem(e: TraceEvent): HTMLElement | null {
           h("div", { class: "step-title" }, h("code", null, d.tool), badge(GATE_LABEL[d.decision] ?? d.decision, kind),
             h("span", { class: "muted small" }, PERMISSION_LABEL[d.permission] ?? d.permission),
             d.decision === "confirm" && d.confirmed !== null &&
-              h("span", { class: "muted small" }, d.confirmed ? "· 你同意了" : "· 你拒绝了")),
+              h("span", { class: "muted small" }, d.confirmed ? "· 你同意了" : "· 你拒绝了"),
+            d.auto && h("span", { class: "tag warn", title: "全自动模式：替你点了同意" }, "全自动")),
           (d.appropriate !== null || d.collateral !== null) && h("div", { class: "step-sub mono muted" },
             `合理 ${num(d.appropriate)} · 越界 ${num(d.collateral)}`)));
     }
@@ -162,6 +163,10 @@ function stepItem(e: TraceEvent): HTMLElement | null {
           (d.chunks ?? []).length > 0 && h("div", { class: "step-sub" },
             (d.chunks as any[]).map((c) => h("span", { class: "tag" },
               `${c.id} ${c.verdict === "drop" ? "丢弃" : c.verdict === "summarize_forced" ? "强制摘要" : "留摘要"}`)))));
+    case "mode.change":
+      return h("li", { class: ["step", d.yolo && "warn"] }, icon(ShieldCheck, 13, "step-icon"),
+        h("div", { class: "step-body" },
+          h("div", { class: "step-title" }, d.yolo ? "全自动已开启：写操作不再等你确认" : "全自动已关闭：写操作恢复确认")));
     case "guard.drift":
       return h("li", { class: "step warn" }, icon(Compass, 13, "step-icon"),
         h("div", { class: "step-body" },

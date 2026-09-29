@@ -54,7 +54,7 @@ def test_http_yolo_turn_runs_without_confirmation(running, cfg):
     events = read_sse(port, sid, cookie, {"turn_done"})
     kinds = [k for k, _ in events]
     assert "confirm" not in kinds
-    gates = [d for k, d in events if k == "trace" and d["type"] == "tool.gate"]
+    gates = [d["data"] for k, d in events if k == "trace" and d["type"] == "tool.gate"]
     assert gates and gates[0]["auto"] is True and gates[0]["decision"] == "allow"
     assert "or 0" in (cfg.workspace / "app.py").read_text(encoding="utf-8")
 

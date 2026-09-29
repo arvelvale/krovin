@@ -29,6 +29,13 @@ function newSessionPanel(): HTMLElement {
           update((s) => { s.newSession.useJev = !s.newSession.useJev; });
         },
       }, h("span", { class: "knob" }))),
+    h("div", { class: "popover-row" },
+      h("div", { class: "popover-label" }, "全自动", h("span", { class: "muted small" }, "　写操作不再等你确认")),
+      h("button", {
+        class: ["switch", ns.yolo && "on"],
+        attrs: { role: "switch", "aria-checked": String(ns.yolo), "aria-label": "新对话启用全自动模式" },
+        onclick: () => update((s) => { s.newSession.yolo = !s.newSession.yolo; }),
+      }, h("span", { class: "knob" }))),
     h("div", { class: "popover-row col" },
       h("div", { class: "popover-label" }, "模型档位"),
       h("div", { class: "rubber-slot rubber-slot--popover", attrs: { "data-rubber-segment": "new-session-tier" } })),

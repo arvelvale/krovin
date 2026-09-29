@@ -10,6 +10,7 @@ export interface Current {
   busy: boolean;
   useJev: boolean | null;
   tier: string;
+  yolo: boolean; // 全自动：写操作不再等你确认
   turns: Map<number, Turn>;
   working: Working | null;
   confirms: Map<string, ConfirmItem>;
@@ -30,7 +31,7 @@ export interface AppState {
   memoryList: MemoryItem[];
   drawer: "memory" | "models" | "setup" | null;
   newSessionOpen: boolean;
-  newSession: { useJev: boolean; tier: string };
+  newSession: { useJev: boolean; tier: string; yolo: boolean };
   mobileView: "chat" | "trace";
   sidebarOpen: boolean;
   toast: { text: string; kind: "info" | "error" } | null;
@@ -49,7 +50,7 @@ export const state: AppState = {
   memoryList: [],
   drawer: null,
   newSessionOpen: false,
-  newSession: { useJev: true, tier: "auto" },
+  newSession: { useJev: true, tier: "auto", yolo: false },
   mobileView: "chat",
   sidebarOpen: false,
   toast: null,
@@ -98,6 +99,7 @@ function turnOf(cur: Current, n: number): Turn {
 }
 
 function applyEvent(cur: Current, ev: TraceEvent): void {
+  if (ev.type === "mode.change") cur.yolo = !!ev.data.yolo;
   if (!ev.turn) return;
   const t = turnOf(cur, ev.turn);
   if (t.events.some((e) => e.seq === ev.seq)) return; // 重连后去重
@@ -115,7 +117,7 @@ function applyEvent(cur: Current, ev: TraceEvent): void {
 
 function fromDetail(d: SessionDetail): Current {
   const cur: Current = {
-    id: d.id, live: d.live, busy: d.busy, useJev: d.use_jev, tier: d.tier ?? "auto",
+    id: d.id, live: d.live, busy: d.busy, useJev: d.use_jev, tier: d.tier ?? "auto", yolo: !!d.yolo,
     turns: new Map(), working: d.working, confirms: new Map(), pendingInput: null, stream: "none",
   };
   for (const ev of d.events) applyEvent(cur, ev);
@@ -330,7 +332,7 @@ export async function openSession(id: string): Promise<void> {
 
 export async function createSession(): Promise<void> {
   try {
-    const { id } = await api.createSession(state.newSession.useJev, state.newSession.tier);
+    const { id } = await api.createSession(state.newSession.useJev, state.newSession.tier, state.newSession.yolo);
     update((s) => (s.newSessionOpen = false));
     await openSession(id);
     await loadSessions();
@@ -370,6 +372,18 @@ export async function answerConfirm(confirmId: string, approve: boolean): Promis
   if (!cur) return;
   try {
     await api.confirm(cur.id, confirmId, approve);
+  } catch (err) {
+    fail(err);
+  }
+}
+
+export async function setYolo(on: boolean): Promise<void> {
+  const cur = state.current;
+  if (!cur?.live) return;
+  try {
+    const r = await api.setYolo(cur.id, on);
+    update((s) => s.current && (s.current.yolo = r.yolo));
+    toast(r.yolo ? "全自动已开启：写操作不再等你确认" : "全自动已关闭：写操作恢复确认", r.yolo ? "info" : "info");
   } catch (err) {
     fail(err);
   }

@@ -9,6 +9,7 @@ allowed-tools:
   - write_file
   - edit_file
   - run_command
+  - run_in_sandbox
   - git_branch
   - git_commit
 scripts:

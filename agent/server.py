@@ -29,6 +29,8 @@
   POST   /api/workspaces/folder?name=&kind=   开始逐文件上传 → {id}；PUT /<id>/file?path= 传文件；POST /<id>/finish 收尾
   POST   /api/workspaces/<id>/activate|pull   设为当前 / 从 git 远端同步；DELETE /<id> 删除
   GET    /api/workspaces/<id>/tree|file|raw|changes|zip   看目录、看文件、原始字节、相对导入快照的改动、打包下载
+  POST   /api/workspaces/<id>/preview      {path?} → {url}：给工作区里的网页（html / CDN 版 React、Vue）发一个 2 小时有效的预览地址
+  GET    /preview/<token>/<path>           预览静态文件：凭地址里的令牌访问（不带 cookie），响应带 CSP sandbox，页面脚本拿不到面板的任何权限
   GET    /api/integrations                 Linear / Git / 引导状态（不含 Key 与令牌原文）
   PUT    /api/integrations/linear          {api_key?, team_key, project_name}；DELETE 恢复演示配置；POST /discover 拉团队和项目
   PUT    /api/integrations/git             {user_name, user_email}；PUT|DELETE /git/tokens/<host> 私有仓库令牌
@@ -56,7 +58,7 @@ from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from .asr import AsrError, transcribe
 from .config import ROOT, Config
@@ -69,7 +71,7 @@ from .models import ModelConfigError, ModelStore, discover_models
 from .router import ModelRouter
 from .skills import load_skills
 from .tools import build_registry
-from .tools.base import ToolError
+from .tools.base import ToolError, safe_path
 from .tools.linear import LinearClient
 from .workspaces import WorkspaceError, WorkspaceStore
 
@@ -78,6 +80,17 @@ SESSION_ID = re.compile(r"^s-[\w-]{4,64}$")
 CONFIRM_TIMEOUT = 600          # 秒；超时按拒绝处理
 MAX_JSON = 1 * 1024 * 1024
 MAX_AUDIO = 12 * 1024 * 1024
+PREVIEW_TTL = 2 * 3600
+HOST_OK = re.compile(r"^[A-Za-z0-9.\-\[\]:]{1,100}$")
+
+
+def preview_csp(host: str) -> str:
+    """预览页的 CSP。sandbox 让页面成为不透明源，此时 'self' 不再匹配同站资源，所以要把本机地址明写进去。"""
+    me = host if HOST_OK.match(host or "") else "'self'"
+    return ("sandbox allow-scripts allow-modals allow-forms allow-pointer-lock; "
+            f"default-src {me} https: data: blob:; script-src {me} 'unsafe-inline' 'unsafe-eval' https: blob:; "
+            f"style-src {me} 'unsafe-inline' https:; img-src * data: blob:; font-src * data:; "
+            f"media-src * data: blob:; connect-src {me} https: wss:")  # 不写 frame-ancestors：沙盒 iframe 里 'self' 会误判成非同源
 MAX_ZIP = 200 * 1024 * 1024
 MAX_FILE_UPLOAD = 20 * 1024 * 1024
 WS_ID = re.compile(r"^[a-z0-9-]{1,40}$")
@@ -330,6 +343,7 @@ class App:
         self.integrations.apply(cfg)
         self.workspaces = WorkspaceStore(cfg.data_dir, lambda: {"workspace": self.cfg.workspace, "vault": self.cfg.vault_dir},
                                          token_for=self.integrations.git_token)
+        self.previews: dict[str, tuple[str, float]] = {}  # 令牌 → (工作区 id, 过期时间)
         self.agent_factory = Agent  # 测试里换成带假模型的工厂
         self._lock = threading.Lock()
 
@@ -378,6 +392,40 @@ class App:
         """新会话用的配置副本：把当前选中的工作区 / 笔记库固定下来，之后再切换不影响进行中的会话。"""
         ws = self.workspaces.path(workspace_id, "workspace") if workspace_id else self.active_path("workspace")
         return dataclasses.replace(self.cfg, workspace=ws, vault_dir=self.active_path("vault"))
+
+    def mint_preview(self, wid: str) -> str:
+        """给工作区发一个预览令牌。预览页面在 sandbox iframe 里是不透明源，带不上 cookie，所以用地址里的令牌授权。"""
+        if self.workspaces.get(wid, "workspace")["kind"] != "workspace":
+            raise WorkspaceError("只有工作区能预览")
+        now = time.time()
+        with self._lock:
+            self.previews = {t: v for t, v in self.previews.items() if v[1] > now}
+            token = secrets.token_urlsafe(18)
+            self.previews[token] = (wid, now + PREVIEW_TTL)
+        return token
+
+    def preview_file(self, token: str, rel: str) -> tuple[bytes, str] | None:
+        entry = self.previews.get(token)
+        if not entry or entry[1] < time.time():
+            return None
+        parts = [p for p in rel.split("/") if p]
+        if any(p.startswith(".") for p in parts):  # .git、.env 之类不给看
+            return None
+        try:
+            root = self.workspaces.path(entry[0], "workspace")
+            target = safe_path(root, "/".join(parts) or ".")
+        except (WorkspaceError, ToolError):
+            return None
+        if target.is_dir():
+            target = target / "index.html"
+        if not target.is_file() or target.stat().st_size > 20 * 1024 * 1024:
+            return None
+        ctype = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+        if target.suffix in (".js", ".mjs", ".jsx", ".ts", ".tsx", ".vue"):
+            ctype = "text/javascript"
+        if ctype.startswith("text/") or ctype in ("application/json", "image/svg+xml"):
+            ctype += "; charset=utf-8"
+        return target.read_bytes(), ctype
 
     def reload_integrations(self) -> None:
         self.integrations.apply(self.cfg)
@@ -529,6 +577,8 @@ def make_handler(app: App):
             url = urlparse(self.path)
             path = url.path
             try:
+                if path.startswith("/preview/"):
+                    return self._preview(path, method)
                 if not path.startswith("/api/"):
                     return self._static(path) if method == "GET" else self._error(405, "不支持")
                 if path == "/api/login" and method == "POST":
@@ -730,6 +780,18 @@ def make_handler(app: App):
             app.reload_models()
             return self._json(app.models.public(cfg))
 
+        def _preview(self, path: str, method: str) -> None:
+            if method not in ("GET", "HEAD"):
+                return self._error(405, "不支持")
+            _, _, token, *rest = path.split("/")
+            got = app.preview_file(unquote(token), unquote("/".join(rest)))
+            if got is None:
+                return self._send(404, "预览已过期或文件不存在".encode("utf-8"), "text/plain; charset=utf-8",
+                                  {"Cache-Control": "no-store"})
+            body, ctype = got
+            self._send(200, body, ctype, {"Cache-Control": "no-store", "Content-Security-Policy": preview_csp(self.headers.get("Host") or ""),
+                                          "Access-Control-Allow-Origin": "*"})
+
         def _ws_listing(self) -> dict:
             return {"workspaces": app.workspaces.list("workspace"), "vaults": app.workspaces.list("vault"),
                     "active_workspace": app._active_id("workspace"), "active_vault": app._active_id("vault")}
@@ -782,6 +844,11 @@ def make_handler(app: App):
                     e = ws.get(wid)
                     app.integrations.set_active(e["kind"], wid)
                     return self._json(self._ws_listing())
+                if action == "preview" and method == "POST":
+                    if ws.get(wid)["kind"] != "workspace":
+                        return self._error(400, "只有工作区能预览")
+                    token = app.mint_preview(wid)
+                    return self._json({"url": f"/preview/{token}/", "expires_in": PREVIEW_TTL})
                 if action == "pull" and method == "POST":
                     ws.pull(wid)
                     return self._json(self._ws_listing())

@@ -129,7 +129,7 @@ class Agent:
                                use_proxy=cfg.linear_use_proxy) if cfg.linear_key else None)
         self.ctx = ToolContext(workspace=cfg.workspace, vault=cfg.vault_dir, working=self.working,
                                archive=self.archive, memory=self.memory_store, linear=linear,
-                               shell_allow=cfg.shell_allow,
+                               shell_allow=cfg.shell_allow, sandbox_tag=self.session[-8:].replace("-", ""),
                                git_identity=(cfg.git_name, cfg.git_email) if cfg.git_name and cfg.git_email else None)
         self.ratio = 1.0  # token 估算校准倍率 = 真实 prompt_tokens / 估算值
         self._current_ep = cfg.local

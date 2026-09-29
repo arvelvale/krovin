@@ -29,7 +29,7 @@ function progressText(t: Turn): string {
       const calls: string[] = last.data.tool_calls ?? [];
       return calls.length ? `第 ${steps} 步 · 正在执行 ${calls.join("、")}` : `第 ${steps} 步 · 正在整理回复`;
     }
-    case "tool.gate": return last.data.decision === "confirm" ? "等你确认一个写操作" : `正在执行 ${last.data.tool}`;
+    case "tool.gate": return last.data.decision === "confirm" ? "等你确认一个写操作" : `正在执行 ${last.data.tool}${last.data.auto ? "（全自动）" : ""}`;
     case "tool.call": return `已执行 ${last.data.tool}，正在查看结果`;
     case "context.compress": return "上下文有点长，正在压缩";
     case "route.escalate": return `换到 ${last.data.to} 模型继续`;

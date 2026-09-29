@@ -41,3 +41,10 @@
 .code .src { padding: 8px 12px; white-space: pre; }
 .mono { font-family: var(--mono); }
 @media (max-width: 760px) { .two-col { grid-template-columns: 1fr; } }
+
+.setup-drawer.preview-wide { width: min(1100px, 100%); }
+.preview-frame { width: 100%; height: 62vh; min-height: 320px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #fff; }
+.composer-yolo { display: inline-flex; align-items: center; gap: 5px; flex: none; height: 30px; padding: 0 9px; border: 1px solid #ffffff30; border-radius: 9px; background: #ffffff0d; color: #b9bbc0; font: inherit; font-size: 11px; cursor: pointer; white-space: nowrap; }
+.composer-yolo:hover:not(:disabled) { border-color: #ffffff70; color: #fff; }
+.composer-yolo:disabled { opacity: .45; cursor: default; }
+.composer-yolo.on { color: #ffd9a0; background: #ffb24a26; border-color: #ffb24a99; }

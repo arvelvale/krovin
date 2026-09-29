@@ -36,6 +36,8 @@ class ToolContext:
     skill_scripts: dict[str, dict] = field(default_factory=dict)  # 本轮已命中技能 → {脚本名: SkillScript}
     delegate: Callable[[list[dict]], str] | None = None  # 由 Agent 注入：派发只读子助手
     shell_allow: tuple[str, ...] = ()
+    sandbox: Any = None                 # 测试里换成假的沙箱；None = 用 agent.sandbox.get_sandbox()
+    sandbox_tag: str = ""               # 沙箱里这个会话自己的目录标识
     git_identity: tuple[str, str] | None = None  # 用户在面板里填的提交身份；None = dgx-agent
 
 

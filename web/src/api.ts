@@ -47,8 +47,10 @@ export const api = {
   logout: () => request<{ ok: boolean }>("POST", "/api/logout", {}),
   status: () => request<Status>("GET", "/api/status"),
   sessions: () => request<SessionSummary[]>("GET", "/api/sessions"),
-  createSession: (useJev: boolean, tier: string) =>
-    request<{ id: string }>("POST", "/api/sessions", { use_jev: useJev, tier }),
+  createSession: (useJev: boolean, tier: string, yolo = false) =>
+    request<{ id: string }>("POST", "/api/sessions", { use_jev: useJev, tier, yolo }),
+  setYolo: (id: string, yolo: boolean) =>
+    request<{ tier: string; yolo: boolean }>("PATCH", `/api/sessions/${encodeURIComponent(id)}`, { yolo }),
   session: (id: string) => request<SessionDetail>("GET", `/api/sessions/${encodeURIComponent(id)}`),
   setTier: (id: string, tier: string) =>
     request<{ tier: string }>("PATCH", `/api/sessions/${encodeURIComponent(id)}`, { tier }),
@@ -93,6 +95,8 @@ export const api = {
     if (!r.ok) throw new ApiError(r.status, "读取文件失败");
     return r.blob();
   },
+  previewWorkspace: (id: string) =>
+    request<{ url: string; expires_in: number }>("POST", `/api/workspaces/${id}/preview`, {}),
   wsZipUrl: (id: string) => `/api/workspaces/${id}/zip`,
   integrations: () => request<IntegrationsView>("GET", "/api/integrations"),
   discoverLinear: (apiKey: string) => request<LinearDiscover>("POST", "/api/integrations/linear/discover", { api_key: apiKey }),

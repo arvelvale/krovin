@@ -1,6 +1,6 @@
 import {
   BookOpen, Check, ChevronLeft, CircleAlert, Download, File as FileIcon, Folder, FolderGit2, FolderPlus, GitBranch,
-  KeyRound, LoaderCircle, Plug, RefreshCw, Trash2, Undo2, Upload, X,
+  ExternalLink, KeyRound, LoaderCircle, Play, Plug, RefreshCw, Trash2, Undo2, Upload, X,
 } from "lucide";
 import "../setup.css";
 import { api, ApiError } from "../api";
@@ -37,6 +37,7 @@ interface Browse {
   changes: WsChanges | null;
   view: "files" | "changes";
   error: string;
+  preview: { url: string; path: string } | null;  // 网页预览（sandbox iframe）
 }
 
 export interface Setup {
@@ -70,10 +71,10 @@ export function createSetup(): Setup {
   const body = h("div", { class: "drawer-body" });
   const foot = h("footer", { class: "wizard-foot" });
   const closeBtn = h("button", { class: "icon-btn", title: "关闭", onclick: () => close() }, icon(X, 16));
-  const el = h("div", { class: "drawer-mask", onclick: (e: MouseEvent) => e.target === e.currentTarget && close() },
-    h("aside", { class: "drawer wide setup-drawer", attrs: { role: "dialog", "aria-label": "工作区与集成" } },
-      h("header", { class: "drawer-head" }, h("div", null, title, sub), closeBtn),
-      tabs, banner, body, foot));
+  const drawer = h("aside", { class: "drawer wide setup-drawer", attrs: { role: "dialog", "aria-label": "工作区与集成" } },
+    h("header", { class: "drawer-head" }, h("div", null, title, sub), closeBtn),
+    tabs, banner, body, foot);
+  const el = h("div", { class: "drawer-mask", onclick: (e: MouseEvent) => e.target === e.currentTarget && close() }, drawer);
 
   const close = () => update((s) => (s.drawer = null));
 
@@ -255,7 +256,7 @@ export function createSetup(): Setup {
 
   // ---------------- 看文件 ----------------
   async function openBrowse(it: WsItem) {
-    browse = { item: it, path: "", entries: null, file: null, changes: null, view: "files", error: "" };
+    browse = { item: it, path: "", entries: null, file: null, changes: null, view: "files", error: "", preview: null };
     render();
     await loadDir("");
     void loadChanges();
@@ -289,6 +290,42 @@ export function createSetup(): Setup {
     render();
   }
 
+  /** 预览入口：当前打开的是 html 就预览它，否则找根目录的 index.html */
+  function previewTarget(b: Browse): string | null {
+    if (b.item.kind !== "workspace") return null;
+    if (b.file && /\.html?$/i.test(b.file.path)) return b.file.path;
+    if (!b.file && !b.path && b.entries?.some((e) => e.type === "file" && e.name === "index.html")) return "index.html";
+    return null;
+  }
+
+  async function openPreview(b: Browse, path: string) {
+    await run("preview", async () => {
+      const { url } = await api.previewWorkspace(b.item.id);
+      b.preview = { url: url + path.split("/").map(encodeURIComponent).join("/"), path };
+    });
+  }
+
+  function previewPage(b: Browse): HTMLElement[] {
+    const p = b.preview!;
+    const frame = h("iframe", {
+      class: "preview-frame", title: `预览 ${p.path}`,
+      attrs: { src: p.url, sandbox: "allow-scripts allow-modals allow-forms allow-pointer-lock", referrerpolicy: "no-referrer" },
+    }) as HTMLIFrameElement;
+    return [
+      h("button", { class: "back", onclick: () => { b.preview = null; render(); } }, icon(ChevronLeft, 16), "返回文件"),
+      h("div", { class: "browse-bar" },
+        h("span", { class: "muted small mono" }, `预览 · ${p.path}`),
+        h("span", { class: "spacer" }),
+        h("button", { class: "btn ghost sm", title: "agent 改完文件后点这里重新载入", onclick: () => { frame.src = p.url; } },
+          icon(RefreshCw, 13), "刷新"),
+        h("a", { class: "btn ghost sm", attrs: { href: p.url, target: "_blank", rel: "noopener noreferrer" } },
+          icon(ExternalLink, 13), "新窗口打开")),
+      frame,
+      h("p", { class: "muted small note" },
+        "页面在隔离的沙盒框里运行：能执行脚本、加载 CDN 上的 React / Vue，但拿不到面板的登录状态和任何接口。地址 2 小时内有效，点「返回文件」再点「预览」可以重新生成。"),
+    ];
+  }
+
   function crumbs(b: Browse): HTMLElement {
     const parts = (b.file ? b.file.path : b.path).split("/").filter(Boolean);
     return h("div", { class: "crumbs" },
@@ -314,6 +351,7 @@ export function createSetup(): Setup {
 
   function browsePage(): HTMLElement[] {
     const b = browse!;
+    if (b.preview) return previewPage(b);
     const n = b.changes?.changes.length ?? 0;
     const canWriteBack = b.item.source === "upload" && "showDirectoryPicker" in window;
     return [
@@ -324,6 +362,8 @@ export function createSetup(): Setup {
           b.item.kind === "workspace" && h("button", { class: ["seg-btn", b.view === "changes" && "on"], onclick: () => { b.view = "changes"; void loadChanges(); } },
             n ? `改动 ${n}` : "改动")),
         h("span", { class: "spacer" }),
+        previewTarget(b) && h("button", { class: "btn sm", attrs: { disabled: !!busy }, title: "在隔离的沙盒框里运行这个网页",
+          onclick: () => void openPreview(b, previewTarget(b)!) }, spin(busy === "preview", Play, 13), "预览"),
         h("a", { class: "btn ghost sm", attrs: { href: api.wsZipUrl(b.item.id), download: "" }, title: "打包下载（不含 .git）" }, icon(Download, 13), "下载 zip")),
       ...(b.error ? [h("p", { class: "test-result bad" }, icon(CircleAlert, 13), b.error)] : []),
       b.view === "changes" ? changesPage(b, canWriteBack) : filesPage(b),
@@ -535,6 +575,7 @@ export function createSetup(): Setup {
   // ---------------- 总渲染 ----------------
   function render() {
     progressEl = null;
+    drawer.classList.toggle("preview-wide", !!browse?.preview);
     const tabDefs: [SetupTab, string][] = [["workspace", "工作区"], ["vault", "笔记库"], ["integrations", "集成"]];
     mount(tabs, h("div", { class: "seg" }, tabDefs.map(([t, label]) =>
       h("button", { class: ["seg-btn", tab === t && "on"], onclick: () => { tab = t; browse = null; addOpen = false; render(); } }, label))));

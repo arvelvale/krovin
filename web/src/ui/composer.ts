@@ -1,6 +1,6 @@
-import { ArrowUp, LoaderCircle, Mic, Square } from "lucide";
+import { ArrowUp, LoaderCircle, Mic, Square, Zap } from "lucide";
 import { api, ApiError } from "../api";
-import { sendTurn, state, toast } from "../store";
+import { sendTurn, setYolo, state, toast } from "../store";
 import { MAX_SECONDS, Recorder, voiceSupported } from "../voice";
 import { h, icon, mount } from "./dom";
 
@@ -23,6 +23,11 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
   const jevLabel = h("span", { class: "composer-jev-label" });
   const jevStatus = h("span", { class: "composer-jev-status", attrs: { role: "status", "aria-live": "polite" } },
     h("span", { class: "composer-jev-dot", attrs: { "aria-hidden": "true" } }), jevLabel);
+  const yoloBtn = h("button", {
+    class: "composer-yolo", attrs: { type: "button", "aria-pressed": "false" },
+    title: "全自动：写文件、提交、改 Linear 都不再等你确认（技能白名单、路径与沙箱限制、JEV 对外部写的拦截照旧）。也可以在输入框里发 /yolo 开关",
+  }, icon(Zap, 12), h("span", null, "全自动"));
+  yoloBtn.addEventListener("click", () => void setYolo(!state.current?.yolo));
   const tierSlot = h("div", { class: "rubber-slot rubber-slot--composer", attrs: { "data-rubber-segment": "composer-tier" } });
   const hint = h("div", { class: "composer-hint" });
   const level = h("span", { class: "level" });
@@ -36,6 +41,13 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
 
   async function submit() {
     const text = textarea.value.trim();
+    if (text === "/yolo" && state.current?.live) {  // 斜杠命令：开关全自动，不当作任务发出去
+      textarea.value = "";
+      autosize();
+      await setYolo(!state.current.yolo);
+      sync();
+      return;
+    }
     if (!text || busy() || voice !== "idle") return;
     const ok = await sendTurn(text, voiceDraft ? "voice" : "text");
     if (ok) {
@@ -129,6 +141,9 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
     jevLabel.textContent = jevText;
     jevStatus.title = jevText;
     jevStatus.classList.toggle("on", cur?.useJev === true);
+    yoloBtn.disabled = !cur?.live;
+    yoloBtn.classList.toggle("on", !!cur?.yolo);
+    yoloBtn.setAttribute("aria-pressed", String(!!cur?.yolo));
     mount(micBtn, voice === "transcribing" ? icon(LoaderCircle, 16, "spin") : voice === "recording" ? icon(Square, 14) : icon(Mic, 16));
     if (!cur) hint.textContent = "先在左边新建一个对话";
     else if (!cur.live) hint.textContent = "这是历史会话，只能查看；新建对话才能继续";
@@ -141,7 +156,7 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
   const el = h("div", { class: "composer" },
     h("div", { class: "composer-box" }, textarea,
       h("div", { class: "composer-toolbar" },
-        h("div", { class: "composer-controls" }, jevStatus, tierSlot),
+        h("div", { class: "composer-controls" }, jevStatus, yoloBtn, tierSlot),
         h("div", { class: "composer-actions" }, micBtn, sendBtn))),
     hint);
   sync();
