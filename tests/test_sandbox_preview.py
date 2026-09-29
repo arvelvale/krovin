@@ -249,3 +249,19 @@ def test_preview_requires_login_and_workspace_kind(running):
     assert call(port, "POST", f"/api/workspaces/{wid}/preview", {})[0] == 401            # 发令牌要登录
     assert call(port, "POST", f"/api/workspaces/{vid}/preview", {}, cookie=cookie)[0] == 400  # 笔记库不预览
     assert call(port, "POST", "/api/workspaces/nope/preview", {}, cookie=cookie)[0] == 400
+
+def test_cleanup_only_targets_valid_session_directory(tmp_path):
+    calls = []
+    def runner(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, '', '')
+    sb = OpenShellSandbox(cli='openshell', runner=runner)
+    for tag in ('', '..', '../other', 'x;rm -rf /'):
+        with pytest.raises(SandboxError):
+            sb.cleanup(tag)
+    assert not calls
+    sb.cleanup('session123')
+    assert len(calls) == 1
+    assert 'rm -rf -- /sandbox/work/session123' in calls[0][-1]
+    assert 'readlink -f /sandbox/work' in calls[0][-1]
+    assert 'create' not in calls[0] and 'delete' not in calls[0]

@@ -334,8 +334,16 @@ class WorkspaceStore:
         e = self._entry(wid)
         if e is None:
             raise WorkspaceError("演示环境不能删除" if wid == "demo" else "没有这个工作区")
+        root = self._root(e["kind"]).resolve()
+        path = (root / wid).resolve()
+        if path.parent != root or (root / wid).is_symlink():
+            raise WorkspaceError("工作区路径越界，拒绝删除")
+        if path.exists():
+            _rmtree(path)
         self._uploads.pop(wid, None)
-        self._abort(e)
+        with self._lock:
+            self._items = [d for d in self._items if d["id"] != wid]
+            self._save()
 
     # ---------------- 浏览 ----------------
     def tree(self, wid: str, sub: str = "") -> list[dict]:

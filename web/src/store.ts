@@ -400,16 +400,17 @@ export async function renameSession(id: string, title: string): Promise<void> {
   }
 }
 
-export async function deleteSession(id: string): Promise<void> {
+export async function deleteSession(id: string, deleteWorkspace?: boolean): Promise<void> {
   try {
-    await api.deleteSession(id);
+    const result = await api.deleteSession(id, deleteWorkspace);
     if (state.current?.id === id) {
       closeStream();
       history.replaceState(null, "", location.pathname);
       update((s) => { s.current = null; s.selectedTurn = null; });
     }
     await loadSessions();
-    toast("已删除这个会话");
+    await loadStatus();
+    toast(result.workspace_deleted ? "会话、专属沙箱和工作区已清理" : "会话及专属沙箱已清理，工作区保留");
   } catch (err) {
     fail(err);
   }

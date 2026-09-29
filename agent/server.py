@@ -76,6 +76,7 @@ from .tools import build_registry
 from .tools.base import ToolError, safe_path
 from .tools.linear import LinearClient
 from .workspaces import WorkspaceError, WorkspaceStore
+from .sandbox import get_sandbox, SandboxError
 
 COOKIE = "dgx_session"
 SESSION_ID = re.compile(r"^s-[\w-]{4,64}$")
@@ -531,7 +532,26 @@ class App:
         return {"ok": True, "latency_ms": round((time.monotonic() - t0) * 1000), "reply": r.content[:40],
                 "model": r.model}
 
-    def delete_session(self, sid: str) -> None:
+    def session_cleanup(self, sid: str) -> dict:
+        if not SESSION_ID.fullmatch(sid):
+            raise ValueError("会话编号不合法")
+        wid, name = self.session_workspace(sid, self.live.get(sid))
+        others = set(self.live) | {p.name for p in (self.cfg.data_dir / "runs").glob("s-*") if p.is_dir()}
+        refs = [other for other in others if other != sid and
+                self.session_workspace(other, self.live.get(other))[0] == wid] if wid else []
+        # 没有 meta 的旧在线会话也可能正在用这个目录。
+        if wid and wid != "demo":
+            path = self.workspaces.path(wid, "workspace").resolve()
+            refs += [other for other, live in self.live.items() if other != sid
+                     and live.agent.cfg.workspace.resolve() == path and other not in refs]
+        delete_workspace = bool(wid and wid != "demo" and not refs)
+        reason = (f"同时删除工作区「{name}」及其中全部文件。" if delete_workspace else
+                  f"工作区「{name}」由其它会话共用，予以保留。" if refs else
+                  "内置演示工作区保留。" if wid == "demo" else "未找到关联工作区。")
+        return {"workspace_id": wid, "delete_workspace": delete_workspace,
+                "description": "对话、轨迹及专属沙箱文件会被删除。" + reason + "删除后无法恢复。"}
+
+    def delete_session(self, sid: str, expected_workspace: bool | None = None) -> dict:
         """删除一个会话的全部落盘数据。进行中的会话不让删（删了它还会继续往里写）。"""
         if not SESSION_ID.match(sid):
             raise ValueError("会话编号不合法")
@@ -542,18 +562,46 @@ class App:
         if run.parent != (self.cfg.data_dir / "runs").resolve():
             raise ValueError("会话编号不合法")
         with self._lock:
+            if s is not None and s.busy:
+                raise RuntimeError("这个会话正在进行中，等它结束再删")
+            plan = self.session_cleanup(sid)
+            if expected_workspace is not None and expected_workspace != plan["delete_workspace"]:
+                raise RuntimeError("工作区关联已变化，请重新打开删除确认查看清理范围")
+            hist = load_history(self.cfg.data_dir, sid)
+            used_sandbox = hist and any(e.get("data", {}).get("tool") == "run_in_sandbox"
+                                       for e in hist["events"])
+            if used_sandbox:
+                tag = sid[-8:].replace("-", "")
+                if any(p.name != sid and p.name[-8:].replace("-", "") == tag
+                       for p in (self.cfg.data_dir / "runs").glob("s-*")):
+                    raise RuntimeError("沙箱目录标识与其它会话重复，已停止删除以保护文件")
+                try:
+                    get_sandbox().cleanup(tag)
+                except SandboxError as exc:
+                    raise RuntimeError(f"{exc}；会话尚未删除") from exc
+            try:
+                if plan["delete_workspace"]:
+                    wid = plan["workspace_id"]
+                    was_active = self._active_id("workspace") == wid
+                    self.workspaces.delete(wid)
+                    if was_active:
+                        self.integrations.set_active("workspace", "demo")
+                    self.previews = {k: v for k, v in self.previews.items() if v[0] != wid}
+                if run.exists():
+                    shutil.rmtree(run)
+            except (OSError, WorkspaceError) as exc:
+                raise RuntimeError("文件清理未完成，请重试删除：" + str(exc)) from exc
             self.live.pop(sid, None)
-        if run.exists():
-            shutil.rmtree(run, ignore_errors=True)
+            return plan
 
     def new_session(self, use_jev: bool, tier: str | None, workspace: str | None = None,
                     yolo: bool = False) -> LiveSession:
-        s = LiveSession(self.session_cfg(workspace), use_jev, tier if tier in ("local", "cloud") else None,
-                        self.agent_factory)
-        if yolo:
-            s.set_yolo(True)
-        update_meta(self.cfg.data_dir, s.id, workspace_id=workspace or self._active_id("workspace"))
         with self._lock:
+            s = LiveSession(self.session_cfg(workspace), use_jev, tier if tier in ("local", "cloud") else None,
+                            self.agent_factory)
+            if yolo:
+                s.set_yolo(True)
+            update_meta(self.cfg.data_dir, s.id, workspace_id=workspace or self._active_id("workspace"))
             self.live[s.id] = s
         return s
 
@@ -755,12 +803,18 @@ def make_handler(app: App):
                     "pending": [p["public"] for p in s.pending.values()] if s else [],
                 })
                 return self._json(hist)
+            if action == "cleanup" and method == "GET":
+                return self._json(app.session_cleanup(sid))
             if action == "" and method == "DELETE":
+                data = self._json_body() if int(self.headers.get("Content-Length", "0")) else {}
+                if data is None:
+                    return
                 try:
-                    app.delete_session(sid)
+                    expected = data.get("delete_workspace")
+                    plan = app.delete_session(sid, expected if isinstance(expected, bool) else None)
                 except RuntimeError as exc:
                     return self._error(409, str(exc))
-                return self._json({"ok": True})
+                return self._json({"ok": True, "workspace_deleted": plan["delete_workspace"]})
             patch = None
             if action == "" and method == "PATCH":
                 patch = self._json_body()
@@ -791,8 +845,11 @@ def make_handler(app: App):
                 if len(text) > 8000:
                     return self._error(413, "一次说的内容太长了")
                 source = "voice" if data.get("source") == "voice" else "text"
-                if not s.start_turn(text, source):
-                    return self._error(409, "上一轮还在进行，稍等一下")
+                with app._lock:
+                    if app.live.get(sid) is not s:
+                        return self._error(409, "会话已删除，请新建对话")
+                    if not s.start_turn(text, source):
+                        return self._error(409, "上一轮还在进行，稍等一下")
                 return self._json({"ok": True}, 202)
             if action == "confirm" and method == "POST":
                 data = self._json_body()

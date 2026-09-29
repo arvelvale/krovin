@@ -299,3 +299,65 @@ def test_reset_demo_rebuilds_sandbox(running, cfg):
     (cfg.workspace / "tinyledger" / "store.py").write_text("# 评委改坏了\n", encoding="utf-8")
     assert call(port, "POST", "/api/demo/reset", {}, cookie=cookie)[0] == 200
     assert "float" in (cfg.workspace / "tinyledger" / "store.py").read_text(encoding="utf-8")  # 回到带 bug 的起点
+
+def test_delete_session_cleans_exclusive_workspace_and_sandbox(running, monkeypatch):
+    app, port = running
+    cookie = login(port)
+    wid = app.workspaces.create_empty('cleanup')['id']
+    app.integrations.set_active('workspace', wid)
+    s = app.new_session(True, 'local', wid)
+    s.agent.trace.emit('tool.call', {'tool': 'run_in_sandbox', 'ok': True})
+    root = app.workspaces.path(wid)
+    cleaned = []
+    monkeypatch.setattr(srv, 'get_sandbox', lambda: type('Sandbox', (), {'cleanup': lambda self, tag: cleaned.append(tag)})())
+    plan = call(port, 'GET', f'/api/sessions/{s.id}/cleanup', cookie=cookie)[1]
+    assert plan['delete_workspace'] is True and 'cleanup' in plan['description']
+    code, result, _ = call(port, 'DELETE', f'/api/sessions/{s.id}', {'delete_workspace': True}, cookie)
+    assert code == 200 and result['workspace_deleted'] is True
+    assert cleaned == [s.id[-8:].replace('-', '')]
+    assert not root.exists() and not (app.cfg.data_dir/'runs'/s.id).exists()
+    assert app.integrations.active('workspace') == 'demo'
+
+
+def test_delete_session_keeps_shared_workspace_and_rechecks_preview(running):
+    app, port = running
+    cookie = login(port)
+    wid = app.workspaces.create_empty('shared')['id']
+    first = app.new_session(True, 'local', wid)
+    second = app.new_session(True, 'local', wid)
+    app.live.pop(first.id)  # 重启后的历史会话也必须计入共享引用。
+    root = app.workspaces.path(wid)
+    plan = app.session_cleanup(first.id)
+    assert plan['delete_workspace'] is False and '共用' in plan['description']
+    app.delete_session(first.id, False)
+    assert root.exists()
+    # 之前显示保留的工作区，如今成为独占，必须重新确认，不能悄悄扩大删除范围。
+    code, _, _ = call(port, 'DELETE', f'/api/sessions/{second.id}', {'delete_workspace': False}, cookie)
+    assert code == 409 and root.exists()
+    assert (app.cfg.data_dir/'runs'/second.id).exists()
+
+
+def test_cleanup_failure_preserves_session_and_workspace(running, monkeypatch):
+    app, _ = running
+    wid = app.workspaces.create_empty('retry')['id']
+    s = app.new_session(True, 'local', wid)
+    s.agent.trace.emit('tool.call', {'tool': 'run_in_sandbox', 'ok': True})
+    def fail(self, tag):
+        raise srv.SandboxError('cleanup failed')
+    monkeypatch.setattr(srv, 'get_sandbox', lambda: type('Sandbox', (), {'cleanup': fail})())
+    with pytest.raises(RuntimeError, match='会话尚未删除'):
+        app.delete_session(s.id)
+    assert s.id in app.live and app.workspaces.path(wid).exists()
+    assert (app.cfg.data_dir/'runs'/s.id).exists()
+
+
+def test_busy_and_demo_workspace_protected(running):
+    app, _ = running
+    s = app.new_session(True, 'local', 'demo')
+    s.busy = True
+    with pytest.raises(RuntimeError, match='进行中'):
+        app.delete_session(s.id)
+    s.busy = False
+    assert app.session_cleanup(s.id)['delete_workspace'] is False
+    app.delete_session(s.id)
+    assert app.cfg.workspace.exists()

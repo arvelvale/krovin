@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import tarfile
@@ -158,6 +159,24 @@ class OpenShellSandbox:
         return (p.returncode == 0, "" if p.returncode == 0 else "OpenShell 网关没有响应")
 
     # ---------------- 执行 ----------------
+    def cleanup(self, tag: str) -> None:
+        """只删除指定会话目录；不创建、重建或删除共享沙箱。失败交给调用方重试。"""
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", tag):
+            raise SandboxError("沙箱目录标识不合法")
+        remote = f"/sandbox/work/{tag}"
+        if not self._lock.acquire(timeout=5):
+            raise SandboxError("沙箱正在执行其它任务，请稍后再删除会话")
+        try:
+            # 先校验解析后的父目录，避免 /sandbox/work 被替换成符号链接后误删其它位置。
+            command = ('test "$(readlink -f /sandbox/work)" = /sandbox/work && '
+                       f'rm -rf -- {remote} && test ! -e {remote} && test ! -L {remote}')
+            p = self._cli("sandbox", "exec", "-n", self.name, "--timeout", "30", "--",
+                          "sh", "-c", command, timeout=40)
+            if p.returncode != 0:
+                raise SandboxError("沙箱目录清理失败，会话保留，请稍后重试")
+        finally:
+            self._lock.release()
+
     def run(self, command: str, workspace: Path, *, timeout: int = 60, tag: str = "") -> SandboxResult:
         tag = tag or hashlib.sha1(str(workspace.resolve()).encode()).hexdigest()[:8]
         remote = f"/sandbox/work/{tag}"

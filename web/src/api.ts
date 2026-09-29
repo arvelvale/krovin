@@ -51,7 +51,8 @@ export const api = {
     request<{ id: string }>("POST", "/api/sessions", { use_jev: useJev, tier, yolo }),
   renameSession: (id: string, title: string) =>
     request<{ ok: boolean; title: string }>("PATCH", `/api/sessions/${encodeURIComponent(id)}`, { title }),
-  deleteSession: (id: string) => request<{ ok: boolean }>("DELETE", `/api/sessions/${encodeURIComponent(id)}`),
+  sessionCleanup: (id: string) => request<{ description: string; delete_workspace: boolean }>("GET", `/api/sessions/${encodeURIComponent(id)}/cleanup`),
+  deleteSession: (id: string, deleteWorkspace?: boolean) => request<{ ok: boolean; workspace_deleted: boolean }>("DELETE", `/api/sessions/${encodeURIComponent(id)}`, { delete_workspace: deleteWorkspace }),
   setYolo: (id: string, yolo: boolean) =>
     request<{ tier: string; yolo: boolean }>("PATCH", `/api/sessions/${encodeURIComponent(id)}`, { yolo }),
   session: (id: string) => request<SessionDetail>("GET", `/api/sessions/${encodeURIComponent(id)}`),

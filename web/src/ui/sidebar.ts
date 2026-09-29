@@ -5,6 +5,7 @@ import { h, icon } from "./dom";
 import { logoMark } from "./logo";
 import type { SessionSummary } from "../types";
 import { setup } from "./setup";
+import { api } from "../api";
 
 const SERVICE_ROWS: { key: "local" | "backup" | "cloud" | "jev" | "linear"; label: string }[] = [
   { key: "local", label: "主力" },
@@ -19,6 +20,12 @@ let deleteDialog: HTMLDialogElement | null = null;
 
 function confirmDeleteSession(x: SessionSummary): void {
   if (deleteDialog) return;
+  let deleteWorkspace = false;
+  const description = h("p", { class: "delete-session-description", attrs: { id: "delete-session-description" } }, "正在检查关联文件…");
+  const submit = h("button", { class: "btn delete-session-submit", attrs: { disabled: true }, onclick: () => {
+    dialog.close();
+    void deleteSession(x.id, deleteWorkspace);
+  } }, "删除并清理");
   const cancel = h("button", { class: "btn delete-session-cancel", onclick: () => dialog.close() }, "取消");
   const dialog = h("dialog", {
     class: "delete-session-dialog",
@@ -28,20 +35,21 @@ function confirmDeleteSession(x: SessionSummary): void {
     h("div", { class: "delete-session-icon" }, icon(Trash2, 20)),
     h("h2", { attrs: { id: "delete-session-title" } }, "删除这段对话？"),
     h("p", { class: "delete-session-name" }, x.title),
-    h("p", { class: "delete-session-description", attrs: { id: "delete-session-description" } },
-      "对话内容和决策轨迹都会一起删除，无法恢复。"),
+    description,
     h("div", { class: "delete-session-actions" },
       cancel,
-      h("button", { class: "btn delete-session-submit", onclick: () => {
-        dialog.close();
-        void deleteSession(x.id);
-      } }, "删除对话"))));
+      submit)));
   dialog.addEventListener("click", (e) => { if (e.target === dialog) dialog.close(); });
   dialog.addEventListener("close", () => { dialog.remove(); deleteDialog = null; });
   document.body.append(dialog);
   deleteDialog = dialog;
   dialog.showModal();
   cancel.focus();
+  void api.sessionCleanup(x.id).then((plan) => {
+    description.textContent = plan.description;
+    deleteWorkspace = plan.delete_workspace;
+    submit.disabled = false;
+  }).catch((err) => { description.textContent = `无法检查清理范围：${err instanceof Error ? err.message : "请稍后重试"}`; });
 }
 
 // 正在改名的会话。草稿放在模块变量里：状态轮询触发的整块重绘不会把已经敲的字冲掉
