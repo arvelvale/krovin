@@ -15,6 +15,34 @@ const SERVICE_ROWS: { key: "local" | "backup" | "cloud" | "jev" | "linear"; labe
 ];
 
 let newSessionSwitchMotion: "on" | "off" | null = null;
+let deleteDialog: HTMLDialogElement | null = null;
+
+function confirmDeleteSession(x: SessionSummary): void {
+  if (deleteDialog) return;
+  const cancel = h("button", { class: "btn delete-session-cancel", onclick: () => dialog.close() }, "取消");
+  const dialog = h("dialog", {
+    class: "delete-session-dialog",
+    attrs: { "aria-labelledby": "delete-session-title", "aria-describedby": "delete-session-description" },
+  },
+  h("div", { class: "delete-session-card" },
+    h("div", { class: "delete-session-icon" }, icon(Trash2, 20)),
+    h("h2", { attrs: { id: "delete-session-title" } }, "删除这段对话？"),
+    h("p", { class: "delete-session-name" }, x.title),
+    h("p", { class: "delete-session-description", attrs: { id: "delete-session-description" } },
+      "对话内容和决策轨迹都会一起删除，无法恢复。"),
+    h("div", { class: "delete-session-actions" },
+      cancel,
+      h("button", { class: "btn delete-session-submit", onclick: () => {
+        dialog.close();
+        void deleteSession(x.id);
+      } }, "删除对话"))));
+  dialog.addEventListener("click", (e) => { if (e.target === dialog) dialog.close(); });
+  dialog.addEventListener("close", () => { dialog.remove(); deleteDialog = null; });
+  document.body.append(dialog);
+  deleteDialog = dialog;
+  dialog.showModal();
+  cancel.focus();
+}
 
 // 正在改名的会话。草稿放在模块变量里：状态轮询触发的整块重绘不会把已经敲的字冲掉
 let renaming: { id: string; draft: string } | null = null;
@@ -59,7 +87,7 @@ function sessionRow(x: SessionSummary): HTMLElement {
     h("button", {
       class: "icon-btn tiny danger", title: "删除", onclick: (e: MouseEvent) => {
         e.stopPropagation();
-        if (window.confirm(`删除会话「${x.title}」？对话内容和决策轨迹都会一起删掉，不能恢复。`)) void deleteSession(x.id);
+        confirmDeleteSession(x);
       },
     }, icon(Trash2, 13))));
 }
