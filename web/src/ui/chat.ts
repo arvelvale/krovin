@@ -246,7 +246,7 @@ function emptyState(cur: Current | null): HTMLElement {
   const skills = state.status?.skills ?? [];
   return h("div", { class: "empty" },
     h("div", { class: "welcome-kicker" }, logoMark(14), "AGENTIC DEVELOPMENT · KROVIN"),
-    h("h2", null, "让 ", h("em", null, "AI", h("span", { class: "ai-agents-word" }, " agents")), " 接手任务。", h("br"), h("span", null, "让每一步，清晰可见。")),
+    h("h2", null, "让 ", h("em", null, "AI", h("span", { class: "ai-agents-word" }, "agents")), " 接手任务。", h("br"), h("span", null, "让每一步，清晰可见。")),
     h("p", null, "计划、代码、进展，都在一个对话里。", h("br"), "把下一件事交给 KROVIN，专注你的想法。"),
     (!cur || cur.live) && h("div", { class: "suggest" },
       SUGGESTIONS.map((item) => h("button", {

@@ -30,11 +30,7 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
   });
   const micBtn = h("button", { class: "icon-btn mic", attrs: { type: "button" } });
   const sendBtn = h("button", { class: "send", attrs: { type: "button", "aria-label": "发送" } }, icon(ArrowUp, 18));
-  const jevLabel = h("span", { class: "composer-jev-label" });
-  const jevStatus = h("span", { class: "composer-jev-status", attrs: { role: "status", "aria-live": "polite" } },
-    h("span", { class: "composer-jev-dot", attrs: { "aria-hidden": "true" } }), jevLabel);
-  const pickers = createComposerPickers();
-  const tierSlot = h("div", { class: "rubber-slot rubber-slot--composer", attrs: { "data-rubber-segment": "composer-tier" } });
+  const pickers = createComposerPickers(() => imageInput.click());
   const hint = h("div", { class: "composer-hint" });
   const level = h("span", { class: "level" });
 
@@ -211,10 +207,6 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
     micBtn.classList.toggle("recording", voice === "recording");
     micBtn.title = voice === "recording" ? "再点一下结束录音" : "语音输入";
     micBtn.setAttribute("aria-label", micBtn.title);
-    const jevText = !cur ? (state.newSession.useJev ? "JEV 决策层" : "基线 · 无 JEV") : cur.useJev === true ? "JEV 决策层" : cur.useJev === false ? "基线 · 无 JEV" : "JEV 状态未知";
-    jevLabel.textContent = jevText;
-    jevStatus.title = jevText;
-    jevStatus.classList.toggle("on", cur ? cur.useJev === true : state.newSession.useJev);
     pickers.sync();
     mount(micBtn, voice === "transcribing" ? icon(LoaderCircle, 16, "spin") : voice === "recording" ? icon(Square, 14) : icon(Mic, 16));
     if (!cur) hint.textContent = "直接输入就会新建对话 · Enter 发送";
@@ -228,9 +220,9 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
   const el = h("div", { class: "composer" },
     h("div", { class: "composer-box" }, imageInput, imagePreviews, textarea,
       h("div", { class: "composer-toolbar" },
-        h("div", { class: "composer-controls" }, jevStatus, tierSlot),
+        h("div", { class: "composer-controls" }, pickers.el),
         h("div", { class: "composer-actions" }, micBtn, sendBtn))),
-    pickers.el, hint);
+    hint);
   sync();
   return { el, sync };
 }

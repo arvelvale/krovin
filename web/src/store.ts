@@ -374,7 +374,8 @@ export async function sendTurn(text: string, source: "text" | "voice", files: Fi
   }
   update((s) => {
     s.current!.busy = true;
-    s.current!.pendingInput = { text, source, images: images.map((id) => api.imageUrl(cur.id, id)) };
+    s.current!.pendingInput = { text: text || "请查看我发送的图片。", source,
+      images: images.map((imageId) => api.imageUrl(cur.id, imageId)) };
     s.followLatest = true;
   });
   try {

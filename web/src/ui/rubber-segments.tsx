@@ -1,6 +1,7 @@
 import { createRoot, type Root } from "react-dom/client";
 import RubberSegment, { type RubberSegmentItem } from "../components/RubberSegment.jsx";
-import { setMemoryTab, setTier, state, update } from "../store";
+import { setMemoryTab, state, update } from "../store";
+import { setup, type SetupTab } from "./setup";
 
 type Segment = {
   host: HTMLElement;
@@ -14,13 +15,25 @@ type Spec = {
   items: RubberSegmentItem[];
   value: string;
   label: string;
-  size: "sm" | "md";
+  size: "sm" | "md" | "lg";
   signature: string;
   change: (value: string, segment: Segment) => void;
 };
 
 function specFor(key: string, refresh: () => void): Spec | null {
   const pendingCount = state.current?.working?.todo.filter((item) => !item.done).length ?? 0;
+  if (key === "setup-tabs") return {
+    items: [
+      { value: "workspace", label: "工作区" },
+      { value: "vault", label: "笔记库" },
+      { value: "integrations", label: "集成" },
+    ],
+    value: setup.currentTab(),
+    label: "工作区与集成视图",
+    size: "lg",
+    signature: "",
+    change: (value) => { setup.selectTab(value as SetupTab); refresh(); },
+  };
   if (key === "right-tabs") return {
     items: [
       { value: "trace", label: "决策轨迹" },
@@ -47,25 +60,6 @@ function specFor(key: string, refresh: () => void): Spec | null {
     size: "sm",
     signature: "",
     change: (value) => update((s) => { s.newSession.tier = value; }),
-  };
-  const cur = state.current;
-  if (key === "composer-tier") return {
-    items: [{ value: "auto", label: "自动" }, { value: "local", label: "主力" }, { value: "cloud", label: "难题" }],
-    value: cur?.live ? cur.tier : state.newSession.tier,
-    label: cur?.live ? "模型档位（下一轮生效）" : "模型档位（下次新对话）",
-    size: "sm",
-    signature: "",
-    change: (value, segment) => {
-      if (!cur?.live) {
-        update((s) => { s.newSession.tier = value; });
-        return;
-      }
-      segment.pending = true;
-      void setTier(value).finally(() => {
-        segment.pending = false;
-        refresh();
-      });
-    },
   };
   return null;
 }
