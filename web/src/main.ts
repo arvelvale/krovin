@@ -10,6 +10,7 @@ import { logoMark } from "./ui/logo";
 import { renderDrawer } from "./ui/drawer";
 import { renderLogin } from "./ui/login";
 import { createModelSettings } from "./ui/models";
+import { artifactView } from "./ui/artifact";
 import { setup } from "./ui/setup";
 import { renderSidebar } from "./ui/sidebar";
 import { renderTracePanel } from "./ui/trace";
@@ -110,12 +111,19 @@ function render(): void {
   } else if (turnCount !== lastTurnCount) messages.scrollTop = 0;
   lastTurnCount = turnCount;
   // 模型设置里有输入框，只在打开时挂一次，之后的全局重绘不碰它
-  if (state.drawer === "setup") {
+  if (state.drawer === "preview") {
+    if (lastDrawer !== "preview") {
+      artifactView.open();
+      mount(overlay, artifactView.el);
+    }
+  } else if (state.drawer === "setup") {
+    if (lastDrawer === "preview") artifactView.close();
     if (lastDrawer !== "setup") {
       setup.open();
       mount(overlay, setup.el);
     }
   } else if (state.drawer === "models") {
+    if (lastDrawer === "preview") artifactView.close();
     if (lastDrawer === "setup") setup.close();
     if (lastDrawer !== "models") {
       modelSettings.open();
@@ -124,6 +132,7 @@ function render(): void {
   } else {
     if (lastDrawer === "models") modelSettings.close();
     if (lastDrawer === "setup") setup.close();
+    if (lastDrawer === "preview") artifactView.close();
     const memoryScroll = state.drawer === "memory" && lastDrawer === "memory" && state.memoryTab === lastMemoryTab
       ? overlay.querySelector<HTMLElement>(".drawer-body")?.scrollTop ?? 0
       : 0;

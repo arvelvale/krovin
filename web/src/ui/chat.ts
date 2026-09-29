@@ -5,6 +5,7 @@ import { ms, PERMISSION_LABEL, TIER_LABEL } from "../format";
 import { answerConfirm, createSession, selectTurn, sortedTurns, state, type Current } from "../store";
 import type { ConfirmItem, Turn } from "../types";
 import { h, icon } from "./dom";
+import { artifactCard, turnArtifacts } from "./artifact";
 import { logoMark } from "./logo";
 import { markdown } from "./markdown";
 
@@ -200,7 +201,8 @@ function turnView(cur: Current, t: Turn, running: boolean): HTMLElement {
     confirms.map(confirmCard),
     t.reply
       ? h("div", { class: "msg bot" }, h("div", { class: "avatar" }, icon(Bot, 16)), markdown(t.reply))
-      : running && h("div", { class: "progress" }, icon(LoaderCircle, 14, "spin"), progressText(t)));
+      : running && h("div", { class: "progress" }, icon(LoaderCircle, 14, "spin"), progressText(t)),
+    t.reply && turnArtifacts(cur, t).map((a) => artifactCard(cur, a)));
 }
 
 function emptyState(cur: Current | null): HTMLElement {

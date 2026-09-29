@@ -12,6 +12,7 @@ export interface Current {
   tier: string;
   yolo: boolean; // 全自动：原本要问你的确认改由 JEV 自动决定
   workspace: string | null; // 这个会话固定使用的工作区名字
+  workspaceId: string | null; // 对应的工作区 id（产物卡片用它开预览）
   turns: Map<number, Turn>;
   working: Working | null;
   confirms: Map<string, ConfirmItem>;
@@ -30,7 +31,7 @@ export interface AppState {
   memories: Map<string, MemoryItem>;
   memoryTab: "active" | "pending";
   memoryList: MemoryItem[];
-  drawer: "memory" | "models" | "setup" | null;
+  drawer: "memory" | "models" | "setup" | "preview" | null;
   newSessionOpen: boolean;
   newSession: { useJev: boolean; tier: string; yolo: boolean };
   mobileView: "chat" | "trace";
@@ -118,7 +119,7 @@ function applyEvent(cur: Current, ev: TraceEvent): void {
 
 function fromDetail(d: SessionDetail): Current {
   const cur: Current = {
-    id: d.id, live: d.live, busy: d.busy, useJev: d.use_jev, tier: d.tier ?? "auto", yolo: !!d.yolo, workspace: d.workspace ?? null,
+    id: d.id, live: d.live, busy: d.busy, useJev: d.use_jev, tier: d.tier ?? "auto", yolo: !!d.yolo, workspace: d.workspace ?? null, workspaceId: d.workspace_id ?? null,
     turns: new Map(), working: d.working, confirms: new Map(), pendingInput: null, stream: "none",
   };
   for (const ev of d.events) applyEvent(cur, ev);
