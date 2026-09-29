@@ -1,4 +1,4 @@
-"""DGX Spark 开发流 agent 内核。
+"""KROVIN 开发流 agent 内核。
 
 模块分工（详见 docs/agent架构设计.md）：
 - config    端点、模型、阈值

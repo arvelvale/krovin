@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-title Spark 开发流 · 评审服务（这个窗口不要关）
+title KROVIN · 评审服务（这个窗口不要关）
 cd /d "%~dp0"
 echo.
 echo ===== 1/3 自检：本机代理、JEV / Linear、SSH、口令、前端 =====

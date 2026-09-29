@@ -1,6 +1,6 @@
-# DGX Spark 开发流 Agent
+# KROVIN
 
-跑在 NVIDIA DGX Spark 上的开发流 agent：读 Linear issue、Obsidian 纪要和用户口述，完成"拆解 → 计划 → 开发 → 写日志 → 同步状态"。
+KROVIN 是跑在 NVIDIA DGX Spark 上的开发流 agent：读 Linear issue、Obsidian 纪要和用户口述，完成"拆解 → 计划 → 开发 → 写日志 → 同步状态"。
 所有"选哪个"的结构化判断（技能选择、模型路由、工具门控、记忆精选、上下文压缩）交给 JEV 决策层，并且每个决策都写进可度量的决策轨迹。
 
 > 这是团队内部 README。参赛提交用的对外版本（500 字说明、部署三问、技术栈清单）在截止前另写。

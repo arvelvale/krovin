@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Spark 开发流的代码执行沙箱策略（OpenShell）。基于镜像自带的 /etc/openshell/policy.yaml 收紧：
+# KROVIN的代码执行沙箱策略（OpenShell）。基于镜像自带的 /etc/openshell/policy.yaml 收紧：
 #   · 文件系统：系统目录只读，只有 /sandbox 和 /tmp 可写（工作区副本放在 /sandbox/work/）；
 #   · 进程：以非 root 的 sandbox 用户运行；
 #   · 网络：一条放行规则都没有 —— agent 写的代码出不了网（npm install / pip install / curl 都会被 403）。

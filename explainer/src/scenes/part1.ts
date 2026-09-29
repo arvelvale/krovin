@@ -68,7 +68,7 @@ const intro: Scene = {
     ctx.save();
     ctx.globalAlpha *= clamp01(s.L(2) / 0.4);
     highlight(ctx, 690, 470, 540, 64, s.p(2, 1.1, 0.9), C.hlGreen);
-    text(ctx, "Spark 开发流", 960, 520, { size: 104, align: "center", p: tp, weight: 700 });
+    text(ctx, "KROVIN", 960, 520, { size: 104, align: "center", p: tp, weight: 700 });
     text(ctx, "跑在 NVIDIA DGX Spark 上的开发流 agent", 960, 610, { size: 38, align: "center", p: s.p(2, 1.3, 1.4), color: C.soft });
     // GB10 芯片小涂鸦
     const cp = s.p(2, 2.2, 1);

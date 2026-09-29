@@ -1,7 +1,7 @@
 [project]
-name = "dgx-spark-devflow-agent"
+name = "krovin"
 version = "0.1.0"
-description = "跑在 NVIDIA DGX Spark 上的开发流 agent：JEV 结构化决策 + 本地 Nemotron / 云端 step-5 路由"
+description = "KROVIN：跑在 NVIDIA DGX Spark 上的开发流 agent，结合 JEV 结构化决策与本地、云端模型路由"
 requires-python = ">=3.11"
 dependencies = ["pyyaml>=6"]
 

@@ -1,4 +1,4 @@
-# DGX Spark 协作入口
+# KROVIN 协作入口
 
 先读 `README.md`（代码结构、命令、分工入口），再读 `docs/README.md`（设计文档索引）。
 连接和模型运维以 `docs/节点连接与模型运维.md` 为正本。

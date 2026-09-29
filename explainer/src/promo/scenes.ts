@@ -115,7 +115,7 @@ const open: Scene = {
   draw(ctx, s) {
     const tp = s.p(0, 0, 1.4);
     highlight(ctx, 590, 300, 740, 70, s.p(0, 1.2, 0.8), C.hlGreen, 4);
-    text(ctx, "Spark 开发流", 960, 360, { size: 120, align: "center", p: tp, weight: 700 });
+    text(ctx, "KROVIN", 960, 360, { size: 120, align: "center", p: tp, weight: 700 });
     text(ctx, "跑在 NVIDIA DGX Spark 上的开发流助手", 960, 450, { size: 44, align: "center", p: s.at(0, 0.45, 1), color: C.soft });
     stamp(ctx, "DGX Spark", 1540, 250, s.at(0, 0.7, 0.5), C.green, 0.1, 32);
     // 第二句：三个来源 → 五步流水线
@@ -328,9 +328,9 @@ const outro: Scene = {
       ctx.fillStyle = `rgba(243, 236, 221, ${0.97 * clamp01(f * 2)})`;
       ctx.fillRect(0, 0, 1920, 1080);
       highlight(ctx, 640, 430, 640, 64, s.p(1, 0.8, 0.8), C.hlGreen);
-      text(ctx, "Spark 开发流", 960, 480, { size: 110, align: "center", p: f, weight: 700 });
+      text(ctx, "KROVIN", 960, 480, { size: 110, align: "center", p: f, weight: 700 });
       text(ctx, "每一个「选哪个」，都可以被看见、被度量", 960, 590, { size: 42, align: "center", p: s.p(1, 0.6, 1), color: C.soft });
-      chip(ctx, 640, 660, "github.com/arvelvale/spark-devflow-agent", s.p(1, 1.2, 1), C.soft, "rgba(255,255,255,0.5)", 28);
+      chip(ctx, 640, 660, "github.com/arvelvale/krovin", s.p(1, 1.2, 1), C.soft, "rgba(255,255,255,0.5)", 28);
     }
   },
 };

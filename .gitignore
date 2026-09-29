@@ -2,6 +2,7 @@
 .env
 *.xlsx
 *.docx
+*.lnk
 .mcp-ssh.lock
 .ssh_known_hosts
 

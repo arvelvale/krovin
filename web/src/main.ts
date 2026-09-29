@@ -59,7 +59,7 @@ function renderHeader(): (HTMLElement | null)[] {
     h("button", { class: "icon-btn only-mobile", title: "会话列表", onclick: () => update((s) => (s.sidebarOpen = true)) }, icon(Menu, 18)),
     h("div", { class: "chat-title" },
       h("span", { class: "header-symbol" }, icon(Sparkles, 16)),
-      h("div", { class: "title-group" }, h("span", { class: "header-eyebrow" }, "SPARK / WORKSPACE"), h("span", { class: "title-text" }, title))),
+      h("div", { class: "title-group" }, h("span", { class: "header-eyebrow" }, "KROVIN / WORKSPACE"), h("span", { class: "title-text" }, title))),
     h("button", {
       class: ["icon-btn only-narrow", state.mobileView === "trace" && "on"], title: "决策轨迹",
       onclick: () => update((s) => (s.mobileView = s.mobileView === "trace" ? "chat" : "trace")),

@@ -100,8 +100,8 @@ const outro: Scene = {
       ctx.fillStyle = `rgba(243, 236, 221, ${0.82 * clamp01(tp * 2)})`;
       ctx.fillRect(0, 0, 1920, 1080);
       highlight(ctx, 690, 450, 540, 64, s.p(1, 0.8, 0.8), C.hlGreen);
-      text(ctx, "Spark 开发流", 960, 500, { size: 110, align: "center", p: tp, weight: 700 });
-      chip(ctx, 690, 600, "github.com/arvelvale/spark-devflow-agent", s.p(1, 1, 1), C.soft, "rgba(255,255,255,0.5)", 28);
+      text(ctx, "KROVIN", 960, 500, { size: 110, align: "center", p: tp, weight: 700 });
+      chip(ctx, 690, 600, "github.com/arvelvale/krovin", s.p(1, 1, 1), C.soft, "rgba(255,255,255,0.5)", 28);
       stamp(ctx, "DGX Spark", 1560, 330, s.p(1, 1.6, 0.6), C.green, 0.12, 34);
     }
   },

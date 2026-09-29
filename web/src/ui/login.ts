@@ -48,13 +48,13 @@ export function renderLogin(): HTMLElement {
   h("p", { class: "login-help" }, icon(ShieldCheck, 14), "口令可在团队手册或启动终端中找到"));
   setTimeout(() => input.focus(), 0);
   return h("div", { class: "login" },
-    h("div", { class: "login-brand" }, icon(Sparkles, 22), "Spark", h("span", null, "开发流助手")),
+    h("div", { class: "login-brand" }, icon(Sparkles, 22), "KROVIN", h("span", null, "开发流助手")),
     h("div", { class: "login-layout" },
       h("section", { class: "login-story" },
         h("span", { class: "welcome-kicker" }, "AGENTIC DEVELOPMENT INFRASTRUCTURE"),
         h("h2", null, "让 ", h("em", null, "AI", h("span", { class: "ai-agents-word" }, " agents")), h("br"), h("span", null, "融入你的开发流。")),
-        h("p", null, "从第一行想法，到最后一次提交。", h("br"), "Spark 陪你把开发的每一步，连在一起。"),
+        h("p", null, "从第一行想法，到最后一次提交。", h("br"), "KROVIN 陪你把开发的每一步，连在一起。"),
         h("div", { class: "login-flow" }, "理解需求", h("span", null, "→"), "执行计划", h("span", null, "→"), "交付进展")),
       form),
-    h("footer", { class: "login-footer" }, h("span", null, "SPARK DEVFLOW"), h("span", null, "本地模型 · 智能调度 · 清晰可控")));
+    h("footer", { class: "login-footer" }, h("span", null, "KROVIN"), h("span", null, "本地模型 · 智能调度 · 清晰可控")));
 }

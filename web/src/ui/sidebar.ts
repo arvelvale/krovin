@@ -51,7 +51,7 @@ export function renderSidebar(): HTMLElement {
   return h("div", { class: "sidebar-inner" },
     h("div", { class: "brand" },
       h("div", { class: "brand-mark" }, icon(Sparkles, 20)),
-      h("div", null, h("div", { class: "brand-name" }, "Spark"), h("div", { class: "brand-sub" }, "你的开发流助手")),
+      h("div", null, h("div", { class: "brand-name" }, "KROVIN"), h("div", { class: "brand-sub" }, "你的开发流助手")),
       h("button", { class: "icon-btn only-mobile", title: "收起", onclick: () => update((s) => (s.sidebarOpen = false)) },
         icon(X, 16))),
     h("div", { class: "new-wrap" },

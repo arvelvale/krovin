@@ -231,7 +231,7 @@ def cmd_serve(args) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     _utf8()
-    p = argparse.ArgumentParser(prog="python -m agent", description="DGX Spark 开发流 agent")
+    p = argparse.ArgumentParser(prog="python -m agent", description="KROVIN 开发流 agent")
     p.add_argument("--workspace", help="被操作的仓库路径（默认 var/workspace/tinyledger）")
     p.add_argument("--no-jev", action="store_true", help="关闭 JEV 决策层（A/B 的基线臂）")
     p.add_argument("--tier", choices=["local", "cloud"], help="强制模型档位")

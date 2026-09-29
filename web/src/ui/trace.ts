@@ -241,7 +241,7 @@ export function renderTracePanel(): HTMLElement {
   else if (!t) body = h("div", { class: "trace-welcome" },
     h("div", { class: "trace-illustration", attrs: { "aria-hidden": "true" } }, icon(Route, 28)),
     h("h3", null, "每一步，都清晰可见。"),
-    h("p", null, "对话开始后，Spark 的思考路径会在这里逐步展开。"),
+    h("p", null, "对话开始后，KROVIN 的思考路径会在这里逐步展开。"),
     h("div", { class: "trace-pipeline" },
       [[Sparkles, "选择技能", "理解意图，找到合适的能力"], [Cpu, "调度模型", "为任务选择合适的模型"], [ShieldCheck, "执行与确认", "查看工具调用和操作门控"]].map(([symbol, title, text], i) =>
         h("div", { class: "pipeline-step" }, h("div", { class: "pipeline-icon" }, icon(symbol as typeof Sparkles, 17)),
