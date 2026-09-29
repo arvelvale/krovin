@@ -94,7 +94,7 @@ python scripts/node.py serve     # 节点上起面板 + 本机 127.0.0.1:9000 �
   - 境外服务要打开「经操作机代理出境」（节点直连不了境外）。没有 `models.json` 时一切沿用 `config.py` 默认值和环境变量。
 
 - **全自动（yolo）**：输入框里的「全自动」按钮（或发 `/yolo`、新建对话时的开关；命令行 `--yolo` / 聊天里 `/yolo`）打开后，原本要弹给你的确认改由 JEV 自动决定（判断可能误伤无关内容 → 自动拦截，其余自动放行），全程不打扰你，轨迹里标 `auto`。确认卡（没开全自动时）先用一句人话说清「要做什么」和「JEV 怎么看」，原始参数折叠在下面。不变的硬边界：技能白名单、外部写被 JEV 判为不相关照样拦截、路径沙箱、命令只在白名单或 OpenShell 沙箱里跑、Linear 范围、agent 不 push。开启时已经弹出来等着的确认卡会一并同意。
-- **代码执行沙箱（NVIDIA OpenShell）**：`run_in_sandbox` 工具把工作区副本放进节点上的 OpenShell 容器沙箱运行任意命令——没有网络、系统目录只读、非 root，只有沙箱内的目录可写，Python 3.14 / Node 22 / git 可用；策略在 `sandbox/policy.yaml`。运行后新增 / 修改的文件同步回工作区（不同步删除）。实现与取舍见 `agent/sandbox.py` 头部；节点上的网关是 `~/openshell/bin/openshell-gateway`（不是 systemd 服务，节点重启后要手动拉起，见 docs/评审期间运维.md）。
+- **代码执行沙箱（NVIDIA OpenShell）**：`run_in_sandbox` 工具把工作区副本放进节点上的 OpenShell 容器沙箱运行任意命令——网络只放行策略列出的 npm / pip 软件源，系统目录只读、非 root，只有沙箱内的目录可写，Python 3.14 / Node 22 / git 可用；策略在 `sandbox/policy.yaml`。运行后新增 / 修改的文件同步回工作区（不同步删除）。公开网页可用只读的 `fetch_webpage` 工具通过 curl 读取（拒绝内网地址，不自动跟随跳转）。实现与取舍见 `agent/sandbox.py` 头部；节点上的网关是 `~/openshell/bin/openshell-gateway`（不是 systemd 服务，节点重启后要手动拉起，见 docs/评审期间运维.md）。
 - **网页预览**：`build-webpage` 技能让 agent 从零写静态网页 / 小游戏（可用 CDN 版 React、Vue，不需要打包）；agent 写出网页后，回复下面会出现一张产物卡片（同 ChatGPT），点「预览」在大窗口里运行、点「代码」看源码；也可以在「工作区与文件 → 查看文件」里点「预览」，页面在隔离的 sandbox iframe 里运行：能执行脚本、加载 CDN，但带不上面板的登录 cookie、也访问不了面板接口（真实 Edge 里验证过 `fetch('/api/status')` 被拦）。预览地址凭 2 小时有效的令牌访问。
 - 工作区与集成（左栏「工作区与文件」「集成设置」，首次进入以向导打开，可跳过用演示环境）：
   - **工作区**：面板跑在节点上看不到你电脑的磁盘，所以工作区是节点上的一份副本（`var/workspaces/<id>/`）——克隆 git 仓库（https，私有仓库用「集成」里的令牌）、导入本地文件夹（浏览器逐文件上传，或传 zip）、新建空白项目。能在面板里逐级看目录、看文件内容、看**相对导入快照的改动清单**；改完可在 Chrome / Edge 里一键写回原文件夹（File System Access API，每次授权），或下载 zip。选中的工作区在**新建对话时**固定，进行中的对话不受影响。

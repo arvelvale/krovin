@@ -1,7 +1,7 @@
 """代码执行沙箱：NVIDIA OpenShell（节点上的网关 + 容器沙箱，策略见 sandbox/policy.yaml）。
 
 为什么要有它：`run_command` 只能跑白名单里的测试命令，跑不了「一个 Python 贪吃蛇 / Node 脚本 / 任意验证」。
-沙箱把任意代码关在一个没有网络、系统目录只读、只有 /sandbox 可写、以非 root 运行的容器里，所以可以放开命令范围。
+沙箱把任意代码关在网络受策略限制、系统目录只读、只有 /sandbox 可写、以非 root 运行的容器里，所以可以放开命令范围。
 
 一次调用的流程（openshell CLI，全部走本机网关，约几十毫秒）：
   1. 把工作区复制一份到临时目录（丢掉 .git、node_modules 等，限大小）→ 清掉沙箱里上次的源码（保留 node_modules / .venv）→ upload
