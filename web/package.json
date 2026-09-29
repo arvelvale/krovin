@@ -10,11 +10,19 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@hugeicons/core-free-icons": "^4.3.5",
+    "@hugeicons/react": "^1.1.10",
     "dompurify": "^3.4.16",
     "lucide": "^1.47.0",
-    "marked": "^18.0.14"
+    "marked": "^18.0.14",
+    "motion": "^13.4.4",
+    "ogl": "^1.0.11",
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
   },
   "devDependencies": {
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.0"
   }

@@ -10,6 +10,10 @@ JEV 一次请求问两个 Noul（2026-09-24 实测：单个"是否必要且符�
 | read        | —（默认可用）| 不问 JEV，直接执行                                                   | 直接执行   |
 | write_local | 拒绝       | collateral ≥ 0.50 → 问用户；否则 in_scope ≥ 0.50 → 免确认；否则问用户 | 问用户     |
 | external    | 拒绝       | in_scope < 0.50 → 直接拒绝；否则一律问用户                             | 问用户     |
+
+全自动模式（yolo，会话级开关，等价于命令行 --yes 但可随时开关）：原本要问用户的地方一律视为同意并记 auto=True。
+不变的硬边界：技能白名单（不在 allowed-tools 里照样拒绝）、外部写 in_scope < 0.50 照样拦截、
+路径沙箱、命令白名单 / 沙箱执行、Linear 范围、agent 不 push。全自动只是「不再等人点同意」。
 """
 from __future__ import annotations
 
@@ -42,6 +46,7 @@ class GateResult:
     confirmed: bool | None = None      # 仅 confirm 时有值：用户是否同意
     fallback: bool = False
     collateral: float | None = None
+    auto: bool = False                 # 全自动模式下替用户点了同意
 
     @property
     def execute(self) -> bool:
@@ -72,6 +77,7 @@ class ToolGate:
         self.th = thresholds
         self.decision = decision
         self.confirm = confirm
+        self.yolo = False   # 全自动：不再等人确认（见模块说明）
 
     def _judge(self, tool: Tool, args: dict, goal: str, request: str,
                plan: list[str]) -> tuple[float, float] | None:
@@ -120,6 +126,8 @@ class ToolGate:
                 reason = "JEV 不可用，本地写改为人工确认"
             else:
                 reason = "本地写：JEV 判断不像这个请求需要的步骤，请确认"
+            if self.yolo:
+                return GateResult("allow", f"全自动：{reason}（已自动同意）", scope, th, None, fallback, collateral, auto=True)
             ok = self._ask_user(tool, args, reason, scope, collateral)
             return GateResult("confirm", reason, scope, th, ok, fallback, collateral)
         # external
@@ -127,5 +135,7 @@ class ToolGate:
         if scope is not None and scope < th:
             return GateResult("deny", "外部写：JEV 判断与用户请求不符，已拦截", scope, th, collateral=collateral)
         reason = "外部可见写操作，一律人工确认"
+        if self.yolo:
+            return GateResult("allow", f"全自动：{reason}（已自动同意）", scope, th, None, fallback, collateral, auto=True)
         ok = self._ask_user(tool, args, reason, scope, collateral)
         return GateResult("confirm", reason, scope, th, ok, fallback, collateral)

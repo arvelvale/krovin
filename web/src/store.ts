@@ -1,7 +1,7 @@
 // 全局状态 + SSE 同步。所有界面都从这里读，改完调用 update() 触发一次重绘。
 import { api, ApiError } from "./api";
 import type {
-  ConfirmItem, MemoryItem, SessionDetail, SessionSummary, Status, TraceEvent, Turn, TurnDone, Working,
+  ConfirmItem, MemoryItem, ReasoningItem, SessionDetail, SessionSummary, Status, TraceEvent, Turn, TurnDone, Working,
 } from "./types";
 
 export interface Current {
@@ -28,7 +28,7 @@ export interface AppState {
   memories: Map<string, MemoryItem>;
   memoryTab: "active" | "pending";
   memoryList: MemoryItem[];
-  drawer: "memory" | "models" | null;
+  drawer: "memory" | "models" | "setup" | null;
   newSessionOpen: boolean;
   newSession: { useJev: boolean; tier: string };
   mobileView: "chat" | "trace";
@@ -91,7 +91,7 @@ function fail(err: unknown): void {
 function turnOf(cur: Current, n: number): Turn {
   let t = cur.turns.get(n);
   if (!t) {
-    t = { n, input: "", source: "text", events: [] };
+    t = { n, input: "", source: "text", events: [], reasoning: [] };
     cur.turns.set(n, t);
   }
   return t;
@@ -119,6 +119,10 @@ function fromDetail(d: SessionDetail): Current {
     turns: new Map(), working: d.working, confirms: new Map(), pendingInput: null, stream: "none",
   };
   for (const ev of d.events) applyEvent(cur, ev);
+  for (const item of d.reasoning ?? []) {
+    const t = turnOf(cur, item.turn);
+    if (!t.reasoning.some((r) => r.step === item.step)) t.reasoning.push(item);
+  }
   for (const m of d.messages) {
     const t = turnOf(cur, m.turn);
     if (m.role === "user" && !t.input) t.input = m.content;
@@ -173,6 +177,14 @@ function openStream(id: string): void {
       if (s.followLatest) s.selectedTurn = latestTurn(cur);
     });
     if (ev.type === "memory.recall" || ev.type === "memory.write") void refreshMemories();
+  });
+  es.addEventListener("reasoning", (e) => {
+    if (!mine()) return;
+    const item = JSON.parse((e as MessageEvent).data) as ReasoningItem;
+    update((s) => {
+      const t = turnOf(s.current!, item.turn);
+      if (!t.reasoning.some((r) => r.step === item.step)) t.reasoning.push(item);
+    });
   });
   es.addEventListener("confirm", (e) => {
     if (!mine()) return;
@@ -281,9 +293,13 @@ export async function loadSessions(): Promise<void> {
   }
 }
 
+let memoryRefreshGeneration = 0;
+
 export async function refreshMemories(): Promise<void> {
+  const generation = ++memoryRefreshGeneration;
   try {
     const [active, pending] = await Promise.all([api.memory("active"), api.memory("pending")]);
+    if (generation !== memoryRefreshGeneration) return;
     update((s) => {
       s.memories = new Map([...active, ...pending].map((m) => [m.id, m]));
       s.memoryList = s.memoryTab === "active" ? active : pending;
@@ -371,7 +387,11 @@ export async function setTier(tier: string): Promise<void> {
 }
 
 export async function setMemoryTab(tab: "active" | "pending"): Promise<void> {
-  update((s) => (s.memoryTab = tab));
+  update((s) => {
+    s.memoryTab = tab;
+    // Switch the visible list in the same render as the tab, before the refresh returns.
+    s.memoryList = [...s.memories.values()].filter((m) => m.status === tab);
+  });
   await refreshMemories();
 }
 

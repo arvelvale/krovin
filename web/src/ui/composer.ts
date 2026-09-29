@@ -16,10 +16,14 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
 
   const textarea = h("textarea", {
     class: "composer-input",
-    attrs: { rows: "1", placeholder: "说说要做什么，比如「把 DAY-298 拆一下」", "aria-label": "输入" },
+    attrs: { rows: "1", placeholder: "有什么想推进的？", "aria-label": "输入任务" },
   });
   const micBtn = h("button", { class: "icon-btn mic", attrs: { type: "button" } });
   const sendBtn = h("button", { class: "send", attrs: { type: "button", "aria-label": "发送" } }, icon(ArrowUp, 18));
+  const jevLabel = h("span", { class: "composer-jev-label" });
+  const jevStatus = h("span", { class: "composer-jev-status", attrs: { role: "status", "aria-live": "polite" } },
+    h("span", { class: "composer-jev-dot", attrs: { "aria-hidden": "true" } }), jevLabel);
+  const tierSlot = h("div", { class: "rubber-slot rubber-slot--composer", attrs: { "data-rubber-segment": "composer-tier" } });
   const hint = h("div", { class: "composer-hint" });
   const level = h("span", { class: "level" });
 
@@ -103,6 +107,14 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
   });
   sendBtn.addEventListener("click", () => void submit());
   micBtn.addEventListener("click", () => void toggleVoice());
+  window.addEventListener("spark:compose", (event) => {
+    if (!state.current?.live) return;
+    textarea.value = (event as CustomEvent<string>).detail;
+    voiceDraft = false;
+    autosize();
+    sync();
+    textarea.focus();
+  });
 
   function sync() {
     const cur = state.current;
@@ -112,17 +124,25 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
     micBtn.disabled = !cur?.live || voice === "transcribing";
     micBtn.classList.toggle("recording", voice === "recording");
     micBtn.title = voice === "recording" ? "再点一下结束录音" : "语音输入";
+    micBtn.setAttribute("aria-label", micBtn.title);
+    const jevText = !cur ? "JEV 未开始" : cur.useJev === true ? "JEV 决策层" : cur.useJev === false ? "基线 · 无 JEV" : "JEV 状态未知";
+    jevLabel.textContent = jevText;
+    jevStatus.title = jevText;
+    jevStatus.classList.toggle("on", cur?.useJev === true);
     mount(micBtn, voice === "transcribing" ? icon(LoaderCircle, 16, "spin") : voice === "recording" ? icon(Square, 14) : icon(Mic, 16));
     if (!cur) hint.textContent = "先在左边新建一个对话";
     else if (!cur.live) hint.textContent = "这是历史会话，只能查看；新建对话才能继续";
     else if (voice === "recording") mount(hint, level, `正在听 ${seconds}s · 再点一下结束（最长 ${MAX_SECONDS}s）`);
     else if (voice === "transcribing") hint.textContent = "正在把语音转成文字…";
     else if (cur.busy) hint.textContent = "上一轮还在进行，稍等一下";
-    else hint.textContent = "Enter 发送 · Shift+Enter 换行 · 语音转成文字后可以先改再发";
+    else hint.textContent = "Enter 发送 · Shift + Enter 换行 · 每一步决策，都有迹可循";
   }
 
   const el = h("div", { class: "composer" },
-    h("div", { class: "composer-box" }, textarea, h("div", { class: "composer-actions" }, micBtn, sendBtn)),
+    h("div", { class: "composer-box" }, textarea,
+      h("div", { class: "composer-toolbar" },
+        h("div", { class: "composer-controls" }, jevStatus, tierSlot),
+        h("div", { class: "composer-actions" }, micBtn, sendBtn))),
     hint);
   sync();
   return { el, sync };

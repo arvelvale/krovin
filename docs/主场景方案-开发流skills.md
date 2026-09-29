@@ -12,20 +12,20 @@
 
 ### 0.1 演示资产
 
-| 资产 | 位置 | 说明 |
-|---|---|---|
-| 被操作项目 | `tinyledger`（虚构的小型 Python 记账 CLI），由 `demo/seed/` 脚本生成 | 可一键重置；agent 在它上面真改代码、真跑测试 |
-| Linear | Dayfire 团队 → 项目「DGX-Spark Agent 演示」（P-DAY-8） | 只放演示 issue，由种子脚本创建；key 在 `.env` 的 `LINEAR_API_KEY` |
-| Obsidian | 正本 `demo/obsidian-vault/`，vault 入口 `Aerchen/项目/DGX-Spark-演示纪要`（junction） | 纪要虚构，会进外部 API，不放真实笔记 |
+| 资产       | 位置                                                                       | 说明                                                 |
+| -------- | ------------------------------------------------------------------------ | -------------------------------------------------- |
+| 被操作项目    | `tinyledger`（虚构的小型 Python 记账 CLI），由 `demo/seed/` 脚本生成                    | 可一键重置；agent 在它上面真改代码、真跑测试                          |
+| Linear   | Dayfire 团队 → 项目「DGX-Spark Agent 演示」（P-DAY-8）                             | 只放演示 issue，由种子脚本创建；key 在 `.env` 的 `LINEAR_API_KEY` |
+| Obsidian | 正本 `demo/obsidian-vault/`，vault 入口 `Aerchen/项目/DGX-Spark-演示纪要`（junction） | 纪要虚构，会进外部 API，不放真实笔记                               |
 
 ### 0.2 分工（4 人）
 
-| 角色 | 负责 | 交付物 |
-|---|---|---|
-| 晨熠 | agent 架构 + skills 基础设计；整体集成 | 内核骨架与接口、技能规范模板（frontmatter/allowed-tools/意图路由）、7 个技能初稿、README 主体 |
-| agent 优化 | 模型路由（本地 ↔ step-5）、上下文压缩、记忆、A/B 数据 | `model-router` 决策与阈值、压缩/记忆最小版、有/无 JEV 对照表 |
-| 提示词优化 | 系统提示词、技能指令、JEV 问题模板（instructions/criteria） | 本地模型与 step-5 各自适配的提示词；JEV 中文问题的 confidence 分布验证 |
-| skills 优化 | 技能内容打磨、负向用例、近义技能对、技能评测任务集 | 任务集（有技能/无技能/需组合三类，每类带期望决策）、技能迭代记录 |
+| 角色        | 负责                                         | 交付物                                                              |
+| --------- | ------------------------------------------ | ---------------------------------------------------------------- |
+| 晨熠        | agent 架构 + skills 基础设计；整体集成                | 内核骨架与接口、技能规范模板（frontmatter/allowed-tools/意图路由）、7 个技能初稿、README 主体 |
+| agent 优化  | 模型路由（本地 ↔ step-5）、上下文压缩、记忆、A/B 数据          | `model-router` 决策与阈值、压缩/记忆最小版、有/无 JEV 对照表                        |
+| 提示词优化     | 系统提示词、技能指令、JEV 问题模板（instructions/criteria） | 本地模型与 step-5 各自适配的提示词；JEV 中文问题的 confidence 分布验证                  |
+| skills 优化 | 技能内容打磨、负向用例、近义技能对、技能评测任务集                  | 任务集（有技能/无技能/需组合三类，每类带期望决策）、技能迭代记录                                |
 
 **并行的前提**：D1 结束前冻结三个接口：技能文件格式（`skills/*/SKILL.md`）、任务集 JSON 格式、决策轨迹日志格式。之后四人互不阻塞。
 

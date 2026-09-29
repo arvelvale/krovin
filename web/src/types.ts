@@ -23,6 +23,7 @@ export interface TraceEvent {
 }
 
 export interface Message { turn: number; role: "user" | "assistant"; content: string }
+export interface ReasoningItem { turn: number; step: number; model: string; text: string; truncated: boolean }
 
 export interface Working {
   goal: string;
@@ -64,6 +65,7 @@ export interface SessionDetail {
   tier: string | null;
   events: TraceEvent[];
   messages: Message[];
+  reasoning?: ReasoningItem[];
   working: Working | null;
   pending: ConfirmItem[];
 }
@@ -77,6 +79,8 @@ export interface Status {
   workspace: string;
   workspace_ready: boolean;
   workspace_resettable?: boolean;
+  vault?: string;
+  onboarded?: boolean;
   skills: { name: string; description: string; model: string; writes: string[] }[];
   skill_errors: string[];
 }
@@ -98,6 +102,7 @@ export interface Turn {
   input: string;
   source: string;
   events: TraceEvent[];
+  reasoning: ReasoningItem[];
   reply?: string;
   done?: TurnDone;
 }
@@ -130,4 +135,42 @@ export interface ProviderInput {
   private: boolean;
   use_proxy: boolean;
   models: { name: string; max_tokens?: number }[];
+}
+
+/** 工作区 / 笔记库（节点上的一份副本，见 agent/workspaces.py） */
+export interface WsItem {
+  id: string;
+  name: string;
+  kind: "workspace" | "vault";
+  source: string; // demo | empty | clone | upload
+  url: string;
+  created: number | null;
+  builtin: boolean;
+  ready: boolean;
+  git: boolean;
+  syncable: boolean;
+}
+export interface WsListing {
+  workspaces: WsItem[];
+  vaults: WsItem[];
+  active_workspace: string;
+  active_vault: string;
+  created?: WsItem;
+}
+export interface WsEntry { name: string; type: "dir" | "file"; size: number }
+export interface WsFile { path: string; size: number; binary: boolean; truncated: boolean; text: string }
+export type WsChangeStatus = "modified" | "added" | "deleted";
+export interface WsChanges { base: string; changes: { path: string; status: WsChangeStatus }[] }
+
+export interface IntegrationsView {
+  onboarded: boolean;
+  linear: { configured: boolean; source: "panel" | "env" | null; team_key: string; project_name: string; demo: boolean };
+  git: { user_name: string; user_email: string; hosts: string[] };
+  active_workspace: string;
+  active_vault: string;
+}
+export interface LinearDiscover {
+  user: string;
+  teams: { key: string; name: string }[];
+  projects: { name: string; teams: string[] }[];
 }

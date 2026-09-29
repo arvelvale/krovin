@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "explainer",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "explainer", "run", "dev", "--", "--host", "127.0.0.1", "--strictPort"],
+      "port": 5180
+    }
+  ]
+}

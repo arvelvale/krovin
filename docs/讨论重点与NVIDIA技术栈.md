@@ -61,19 +61,19 @@
 
 先建立地图：**CUDA 是地基**（GPU 计算平台，驱动已自带，我们不写内核）→ **推理框架在地基上把模型跑快**（TensorRT-LLM / NIM / vLLM / SGLang / llama.cpp / Ollama）→ **训练/微调框架**（NeMo / PyTorch / Unsloth）→ **agent 与评估工具**（NeMo Agent Toolkit）。我们已站在 Ollama 这一层，往上每一层都是可选项。
 
-| 组件 | 一句话人话 | 对本项目有什么用 | 成本/风险 | Spark playbook | 建议 |
-|---|---|---|---|---|---|
-| CUDA | GPU 的计算平台，驱动已含（节点报告 CUDA 13.0） | 理解驱动/推理框架关系即可 | 零 | — | 不动 |
-| TensorRT-LLM | NVIDIA 官方 LLM 推理服务器，把模型编译优化后再服务 | 比 Ollama 更高吞吐/更低延迟，"平台优化"展示素材 | 必须核实 Qwen3.8 架构（GGUF Q4_K_M 权重是否需转换）与 aarch64 支持 | playbook-trt-llm | 二档验证 |
-| NIM | 预打包的推理微服务（Docker 容器），拉起来即标准 API | 部署形态标准化，"全栈能力"展示素材 | 需 NGC 拉镜像（磁盘/网络），容器须支持 GB10 aarch64 | playbook-nim-llm | 二档验证，与 TRT-LLM 二选一 |
-| **vLLM（节点现成）** | 开源高性能推理引擎 | **`~/envs/vllm` 已装 vllm 0.28.0 + torch 2.13.0 + triton 3.7.1 + flashinfer，`~/models` 已有配套的 Nemotron-3.5-Lightning-30B-A3B-NVFP4（21G）** | 几乎零成本：激活 venv 即用；`~/tw` 有 197 个离线 wheel 可重建环境 | playbook-vllm | **二档首选：先跑现成组合，再考虑 NIM/TRT-LLM** |
-| NeMo Agent Toolkit（NAT） | agent 工作流编排 + **评估 + 性能剖析**工具链，Python | A/B 实验（有/无 JEV）、token/延迟记账，直接产出评分证据 | 纯 Python 风险低；需学它的配置格式 | 无专用 playbook，用官方文档 | **一档优先** |
-| NeMo（训练框架） | 训练/微调大模型的框架 | 微调路线的前置 | 重；与节点规则（不改环境）要权衡 | playbook-nemo-fine-tune | 暂不 |
-| Unsloth / LLaMA Factory | 第三方微调工具 | 微调路线 | 重 | playbook-unsloth / playbook-llama-factory | 暂不 |
-| Model Optimizer + NVFP4 | 量化工具；NVFP4 是 GB10 支持的新数据格式 | 模型压缩/加速的故事素材 | 需要重做权重，与现有 GGUF 不兼容 | playbook-nvfp4-quantization | 暂不 |
-| Dynamo | NVIDIA 的分布式推理服务（vLLM 生态） | 多节点扩展才有意义 | 单节点过度设计 | 无（见 vllm/sglang playbook） | 不 |
-| MIG | 把一张 GPU 切多份分时复用 | 统一内存 121GiB 单模型已吃满，无切分需求 | GB10 统一内存架构下收益存疑 | playbook-mig | 不 |
-| DGX Spark Playbooks | 官方步骤集（70+ 篇，Apache-2.0） | 查手册用；讨论时说"按官方 playbook 验证过" | 零 | 全部 | 用 |
+| 组件                      | 一句话人话                                 | 对本项目有什么用                                                                                                                               | 成本/风险                                            | Spark playbook                            | 建议                              |
+| ----------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ | ----------------------------------------- | ------------------------------- |
+| CUDA                    | GPU 的计算平台，驱动已含（节点报告 CUDA 13.0）        | 理解驱动/推理框架关系即可                                                                                                                          | 零                                                | —                                         | 不动                              |
+| TensorRT-LLM            | NVIDIA 官方 LLM 推理服务器，把模型编译优化后再服务       | 比 Ollama 更高吞吐/更低延迟，"平台优化"展示素材                                                                                                          | 必须核实 Qwen3.8 架构（GGUF Q4_K_M 权重是否需转换）与 aarch64 支持 | playbook-trt-llm                          | 二档验证                            |
+| NIM                     | 预打包的推理微服务（Docker 容器），拉起来即标准 API       | 部署形态标准化，"全栈能力"展示素材                                                                                                                     | 需 NGC 拉镜像（磁盘/网络），容器须支持 GB10 aarch64              | playbook-nim-llm                          | 二档验证，与 TRT-LLM 二选一              |
+| **vLLM（节点现成）**          | 开源高性能推理引擎                             | **`~/envs/vllm` 已装 vllm 0.28.0 + torch 2.13.0 + triton 3.7.1 + flashinfer，`~/models` 已有配套的 Nemotron-3.5-Lightning-30B-A3B-NVFP4（21G）** | 几乎零成本：激活 venv 即用；`~/tw` 有 197 个离线 wheel 可重建环境    | playbook-vllm                             | **二档首选：先跑现成组合，再考虑 NIM/TRT-LLM** |
+| NeMo Agent Toolkit（NAT） | agent 工作流编排 + **评估 + 性能剖析**工具链，Python | A/B 实验（有/无 JEV）、token/延迟记账，直接产出评分证据                                                                                                    | 纯 Python 风险低；需学它的配置格式                            | 无专用 playbook，用官方文档                        | **一档优先**                        |
+| NeMo（训练框架）              | 训练/微调大模型的框架                           | 微调路线的前置                                                                                                                                | 重；与节点规则（不改环境）要权衡                                 | playbook-nemo-fine-tune                   | 暂不                              |
+| Unsloth / LLaMA Factory | 第三方微调工具                               | 微调路线                                                                                                                                   | 重                                                | playbook-unsloth / playbook-llama-factory | 暂不                              |
+| Model Optimizer + NVFP4 | 量化工具；NVFP4 是 GB10 支持的新数据格式            | 模型压缩/加速的故事素材                                                                                                                           | 需要重做权重，与现有 GGUF 不兼容                              | playbook-nvfp4-quantization               | 暂不                              |
+| Dynamo                  | NVIDIA 的分布式推理服务（vLLM 生态）              | 多节点扩展才有意义                                                                                                                              | 单节点过度设计                                          | 无（见 vllm/sglang playbook）                 | 不                               |
+| MIG                     | 把一张 GPU 切多份分时复用                       | 统一内存 121GiB 单模型已吃满，无切分需求                                                                                                               | GB10 统一内存架构下收益存疑                                 | playbook-mig                              | 不                               |
+| DGX Spark Playbooks     | 官方步骤集（70+ 篇，Apache-2.0）               | 查手册用；讨论时说"按官方 playbook 验证过"                                                                                                            | 零                                                | 全部                                        | 用                               |
 
 **判断原则（讨论时守住的口径）**：每个组件进来必须回答"移除它我们会损失哪个可量化指标"。答不上来就不引入——这正是评分原文"合理运用"的意思，也是原始手册"遵守系统变更限制"的要求。
 

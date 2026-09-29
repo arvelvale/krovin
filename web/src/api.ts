@@ -1,4 +1,7 @@
-import type { MemoryItem, ModelsView, ProviderInput, SessionDetail, SessionSummary, Slot, SlotRef, Status } from "./types";
+import type {
+  IntegrationsView, LinearDiscover, MemoryItem, ModelsView, ProviderInput, SessionDetail, SessionSummary, Slot, SlotRef,
+  Status, WsChanges, WsEntry, WsFile, WsListing,
+} from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -67,6 +70,42 @@ export const api = {
   testModel: (id: string, model: string) =>
     request<{ ok: boolean; latency_ms?: number; reply?: string; error?: string }>(
       "POST", `/api/models/providers/${encodeURIComponent(id)}/test`, { model }),
+  workspaces: () => request<WsListing>("GET", "/api/workspaces"),
+  createWorkspace: (body: { name: string; kind: string; mode: "empty" | "clone"; url?: string; branch?: string }) =>
+    request<WsListing>("POST", "/api/workspaces", body),
+  uploadZip: (name: string, kind: string, zip: Blob) =>
+    request<WsListing>("POST", `/api/workspaces/upload?name=${encodeURIComponent(name)}&kind=${kind}`, undefined, zip),
+  beginFolder: (name: string, kind: string) =>
+    request<{ id: string }>("POST", `/api/workspaces/folder?name=${encodeURIComponent(name)}&kind=${kind}`, {}),
+  putFile: (id: string, path: string, blob: Blob) =>
+    request<{ ok: boolean }>("PUT", `/api/workspaces/${id}/file?path=${encodeURIComponent(path)}`, undefined, blob),
+  finishFolder: (id: string) => request<WsListing>("POST", `/api/workspaces/${id}/finish`, {}),
+  activateWorkspace: (id: string) => request<WsListing>("POST", `/api/workspaces/${id}/activate`, {}),
+  pullWorkspace: (id: string) => request<WsListing>("POST", `/api/workspaces/${id}/pull`, {}),
+  deleteWorkspace: (id: string) => request<WsListing>("DELETE", `/api/workspaces/${id}`),
+  wsTree: (id: string, path: string) =>
+    request<{ entries: WsEntry[] }>("GET", `/api/workspaces/${id}/tree?path=${encodeURIComponent(path)}`),
+  wsFile: (id: string, path: string) =>
+    request<WsFile>("GET", `/api/workspaces/${id}/file?path=${encodeURIComponent(path)}`),
+  wsChanges: (id: string) => request<WsChanges>("GET", `/api/workspaces/${id}/changes`),
+  wsRaw: async (id: string, path: string): Promise<Blob> => {
+    const r = await fetch(`/api/workspaces/${id}/raw?path=${encodeURIComponent(path)}`, { credentials: "same-origin" });
+    if (!r.ok) throw new ApiError(r.status, "读取文件失败");
+    return r.blob();
+  },
+  wsZipUrl: (id: string) => `/api/workspaces/${id}/zip`,
+  integrations: () => request<IntegrationsView>("GET", "/api/integrations"),
+  discoverLinear: (apiKey: string) => request<LinearDiscover>("POST", "/api/integrations/linear/discover", { api_key: apiKey }),
+  saveLinear: (body: { api_key?: string; team_key: string; project_name: string }) =>
+    request<IntegrationsView>("PUT", "/api/integrations/linear", body),
+  clearLinear: () => request<IntegrationsView>("DELETE", "/api/integrations/linear"),
+  saveGit: (name: string, email: string) =>
+    request<IntegrationsView>("PUT", "/api/integrations/git", { user_name: name, user_email: email }),
+  saveToken: (host: string, token: string) =>
+    request<IntegrationsView>("PUT", `/api/integrations/git/tokens/${encodeURIComponent(host)}`, { token }),
+  deleteToken: (host: string) =>
+    request<IntegrationsView>("DELETE", `/api/integrations/git/tokens/${encodeURIComponent(host)}`),
+  setOnboarded: (done: boolean) => request<IntegrationsView>("PUT", "/api/integrations/onboarded", { done }),
   asr: (wav: Blob) => request<{ text: string }>("POST", "/api/asr?format=wav", undefined, wav),
   streamUrl: (id: string) => `/api/sessions/${encodeURIComponent(id)}/stream`,
 };

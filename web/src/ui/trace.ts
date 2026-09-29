@@ -230,14 +230,18 @@ function workingView(): HTMLElement {
 export function renderTracePanel(): HTMLElement {
   const cur = state.current;
   const t = cur && state.selectedTurn !== null ? cur.turns.get(state.selectedTurn) : undefined;
-  const tabs = h("div", { class: "tabs" },
-    h("button", { class: ["tab", state.rightTab === "trace" && "on"], onclick: () => update((s) => (s.rightTab = "trace")) }, "决策轨迹"),
-    h("button", { class: ["tab", state.rightTab === "working" && "on"], onclick: () => update((s) => (s.rightTab = "working")) },
-      "工作记忆", cur?.working?.todo.length ? h("span", { class: "count" }, String(cur.working.todo.filter((x) => !x.done).length || "")) : null));
+  const tabs = h("div", { class: "rubber-slot rubber-slot--right", attrs: { "data-rubber-segment": "right-tabs" } });
   let body: HTMLElement;
   if (state.rightTab === "working") body = workingView();
-  else if (!t) body = h("div", { class: "trace-empty" }, icon(Sparkles, 20),
-    h("p", null, "每一轮里 agent 做的结构化决策——选哪个技能、用哪个模型、哪次写操作要确认——都会按顺序出现在这里。"));
+  else if (!t) body = h("div", { class: "trace-welcome" },
+    h("div", { class: "trace-illustration", attrs: { "aria-hidden": "true" } }, icon(Route, 28)),
+    h("h3", null, "每一步，都清晰可见。"),
+    h("p", null, "对话开始后，Spark 的思考路径会在这里逐步展开。"),
+    h("div", { class: "trace-pipeline" },
+      [[Sparkles, "选择技能", "理解意图，找到合适的能力"], [Cpu, "调度模型", "为任务选择合适的模型"], [ShieldCheck, "执行与确认", "查看工具调用和操作门控"]].map(([symbol, title, text], i) =>
+        h("div", { class: "pipeline-step" }, h("div", { class: "pipeline-icon" }, icon(symbol as typeof Sparkles, 17)),
+          h("div", null, h("strong", null, String(title)), h("p", null, String(text))), h("span", { class: "pipeline-number" }, `0${i + 1}`)))),
+    h("div", { class: "trace-caption" }, icon(Layers, 13), "决策记录会随对话保存，可随时回看"));
   else {
     const running = cur!.busy && !t.done;
     body = h("div", { class: "trace-body" },
@@ -245,5 +249,9 @@ export function renderTracePanel(): HTMLElement {
       t.input && h("p", { class: "trace-input" }, t.input),
       skillCard(t), routeCard(t), memoryCard(t), stepsCard(t), usageCard(t));
   }
-  return h("div", { class: "panel-inner" }, tabs, h("div", { class: "panel-scroll" }, body));
+  return h("div", { class: "panel-inner" },
+    h("div", { class: "panel-heading" }, h("span", null, icon(Route, 16), "洞察"),
+      h("span", { class: "panel-heading-sub" }, "INSIGHTS"),
+      h("button", { class: "icon-btn only-narrow", title: "收起决策轨迹", onclick: () => update((s) => (s.mobileView = "chat")) }, icon(X, 17))),
+    tabs, h("div", { class: "panel-scroll" }, body));
 }

@@ -7,9 +7,9 @@
   POST   /api/login                        {token} → 设置 HttpOnly cookie
   GET    /api/status                       服务状态、技能清单
   GET    /api/sessions                     历史会话（var/runs 下全部，含命令行跑的）
-  POST   /api/sessions                     {use_jev, tier} 新建在线会话
+  POST   /api/sessions                     {use_jev, tier, yolo, workspace} 新建在线会话
   GET    /api/sessions/<id>                轨迹 + 对话 + 工作记忆（在线会话还有待确认项）
-  PATCH  /api/sessions/<id>                {tier} 改模型档位
+  PATCH  /api/sessions/<id>                {tier?, yolo?} 改模型档位 / 开关全自动（开启时把已在等的确认一并同意）
   POST   /api/sessions/<id>/turn           {text, source} 开始一轮（后台执行，进度走 SSE）
   GET    /api/sessions/<id>/stream         SSE：trace / confirm / confirm_resolved / working / turn_done
   POST   /api/sessions/<id>/confirm        {id, approve} 回答写操作确认
@@ -100,6 +100,7 @@ class LiveSession:
         self._lock = threading.Lock()
         self.agent = factory(cfg, confirm=self._confirm, use_jev=use_jev, force_tier=tier)
         self.agent.trace.subscribe(self._on_trace)
+        self.agent.reasoning_listener = lambda item: self.publish("reasoning", item)
 
     @property
     def id(self) -> str:
@@ -130,6 +131,12 @@ class LiveSession:
         self.pending.pop(cid, None)
         self.publish("confirm_resolved", {"id": cid, "approve": answer, "timeout": not answered})
         return answer
+
+    def set_yolo(self, on: bool) -> None:
+        self.agent.yolo = on
+        if on:  # 已经弹出来等着的确认卡：开了全自动就等于同意
+            for cid in list(self.pending):
+                self.answer(cid, True)
 
     def answer(self, cid: str, approve: bool) -> bool:
         item = self.pending.get(cid)
@@ -173,12 +180,16 @@ def load_history(data_dir: Path, sid: str) -> dict | None:
         except json.JSONDecodeError:
             continue
     messages = []
+    reasoning = []
     archive = run / "archive.jsonl"
     if archive.exists():
         for line in archive.read_text(encoding="utf-8").splitlines():
             try:
                 rec = json.loads(line)
             except json.JSONDecodeError:
+                continue
+            if rec.get("kind") == "reasoning":
+                reasoning.append(rec["payload"])
                 continue
             if rec.get("kind") != "msg":
                 continue
@@ -188,7 +199,7 @@ def load_history(data_dir: Path, sid: str) -> dict | None:
                 messages.append({"turn": turn, "role": "user", "content": content})
             elif msg["role"] == "assistant" and content and not msg.get("tool_calls"):
                 messages.append({"turn": turn, "role": "assistant", "content": content})
-    return {"id": sid, "events": events, "messages": messages}
+    return {"id": sid, "events": events, "messages": messages, "reasoning": reasoning}
 
 
 def list_history(data_dir: Path, live: dict[str, LiveSession], limit: int = 60) -> list[dict]:
@@ -419,9 +430,12 @@ class App:
         return {"ok": True, "latency_ms": round((time.monotonic() - t0) * 1000), "reply": r.content[:40],
                 "model": r.model}
 
-    def new_session(self, use_jev: bool, tier: str | None, workspace: str | None = None) -> LiveSession:
+    def new_session(self, use_jev: bool, tier: str | None, workspace: str | None = None,
+                    yolo: bool = False) -> LiveSession:
         s = LiveSession(self.session_cfg(workspace), use_jev, tier if tier in ("local", "cloud") else None,
                         self.agent_factory)
+        if yolo:
+            s.set_yolo(True)
         with self._lock:
             self.live[s.id] = s
         return s
@@ -583,7 +597,8 @@ def make_handler(app: App):
                     wid = data.get("workspace")
                     try:
                         s = app.new_session(bool(data.get("use_jev", True)), data.get("tier"),
-                                            wid if isinstance(wid, str) and wid else None)
+                                            wid if isinstance(wid, str) and wid else None,
+                                            bool(data.get("yolo", False)))
                     except WorkspaceError as exc:
                         return self._error(400, str(exc))
                     return self._json({"id": s.id}, 201)
@@ -602,6 +617,7 @@ def make_handler(app: App):
                     "busy": bool(s and s.busy),
                     "use_jev": s.use_jev if s else None,
                     "tier": (s.agent.force_tier or "auto") if s else None,
+                    "yolo": bool(s.agent.yolo) if s else False,
                     "working": s.agent.working.to_dict() if s else None,
                     "pending": [p["public"] for p in s.pending.values()] if s else [],
                 })
@@ -613,9 +629,12 @@ def make_handler(app: App):
                 data = self._json_body()
                 if data is None:
                     return
-                tier = data.get("tier")
-                s.agent.force_tier = tier if tier in ("local", "cloud") else None
-                return self._json({"tier": s.agent.force_tier or "auto"})
+                if "yolo" in data:
+                    s.set_yolo(bool(data["yolo"]))
+                if "tier" in data:
+                    tier = data.get("tier")
+                    s.agent.force_tier = tier if tier in ("local", "cloud") else None
+                return self._json({"tier": s.agent.force_tier or "auto", "yolo": s.agent.yolo})
             if action == "turn" and method == "POST":
                 data = self._json_body()
                 if data is None:

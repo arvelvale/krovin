@@ -98,6 +98,7 @@ def make_agent(args):
     cfg = Config.load(args.workspace)
     confirm = (lambda req: True) if args.yes else confirm_interactive
     agent = Agent(cfg, confirm=confirm, use_jev=not args.no_jev, force_tier=args.tier)
+    agent.yolo = bool(args.yes or getattr(args, "yolo", False))
     if not args.quiet:
         agent.trace.subscribe(print_event)
     for err in agent.skill_errors:
@@ -107,7 +108,7 @@ def make_agent(args):
 
 def cmd_chat(args) -> int:
     agent = make_agent(args)
-    print(f"会话 {agent.session}  工作区 {agent.cfg.workspace}  （输入 /exit 退出，/plan 看工作记忆）")
+    print(f"会话 {agent.session}  工作区 {agent.cfg.workspace}  （输入 /exit 退出，/plan 看工作记忆，/yolo 开关全自动）")
     while True:
         try:
             text = input("\n你> ").strip()
@@ -120,6 +121,10 @@ def cmd_chat(args) -> int:
             return 0
         if text == "/plan":
             print(agent.working.render())
+            continue
+        if text == "/yolo":
+            agent.yolo = not agent.yolo
+            print("  全自动" + ("已开启：写操作不再询问（技能白名单、路径与命令限制照旧）" if agent.yolo else "已关闭：写操作恢复询问"))
             continue
         res = agent.run_turn(text)
         print(f"\n助手> {res.reply}\n  （{res.tier}，{res.steps} 步，{res.latency:.1f}s，tokens {res.tokens}）")
@@ -231,6 +236,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-jev", action="store_true", help="关闭 JEV 决策层（A/B 的基线臂）")
     p.add_argument("--tier", choices=["local", "cloud"], help="强制模型档位")
     p.add_argument("--yes", action="store_true", help="写操作自动确认（仅限沙盒演示）")
+    p.add_argument("--yolo", action="store_true", help="全自动：同 --yes，聊天里也可用 /yolo 随时开关")
     p.add_argument("--quiet", action="store_true", help="不打印决策轨迹")
     sub = p.add_subparsers(dest="cmd")
     sub.add_parser("chat")

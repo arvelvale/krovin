@@ -6,19 +6,19 @@
 
 ## 实现状态（2026-09-24）
 
-| 模块 | 代码 | 状态 | 与设计的差异 |
-|---|---|---|---|
-| JEV 决策客户端 | `agent/decision.py` | ✅ 真机验证 | 结果缓存（SQLite），另有 replay 模式可离线重放 |
-| 模型路由 | `agent/router.py` | ✅ 真机验证 | 本地主模型 = vLLM + Nemotron，备用 = Ollama + Qwen，难题 = step-5；轮内失败自动 本地→备用→云端；本地模型连续 2 次给出非法工具参数也会升级 |
-| 技能选择 | `agent/skills.py` | ✅ 真机 A/B | 新增 `skill_none`：第一级 P(none) ≥ 0.50 直接判无技能（实测问题：门控值高时会绕过 none 误选）；`skill_multi` 0.70 → 0.50（按任务集标定） |
-| 工具门控 | `agent/gate.py` | ✅ 真机标定 | **由单问题改为两问**：in_scope（合理步骤）+ collateral（会不会删改无关内容）。单问题实测分不开合法与越界调用 |
-| 上下文压缩 | `agent/context.py` | ✅ 真机验证 | 分两阶段：先截短旧的长工具结果，再按整轮打分；tool_calls 配对永远完整；JEV 说"必须保留"但预算不够时退一步留摘要，并标 `summarize_forced` |
-| 记忆 | `agent/memory.py` | ✅ 真机验证 | 关键词召回用中文二元组 + 实体匹配；每轮自动写一条情景记忆；抽取候选由本地模型完成 |
-| 工具 | `agent/tools/` | ✅ | 文件、git（无 push）、白名单命令、Obsidian 只读、Linear（只能访问演示项目） |
-| 决策轨迹 | `agent/trace.py` | ✅ | 格式见 `docs/接口/03-决策轨迹格式.md` |
-| Web 面板 | `agent/server.py`、`web/` | ✅ 真机验证 | 标准库 HTTP + SSE 后端，Vite + TypeScript 前端；实时决策轨迹、网页确认写操作、长期记忆管理 |
-| 语音输入 | `agent/asr.py`、`web/src/voice.ts` | 🟡 除真人麦克风外已验证 | 浏览器录音转 16 kHz WAV → 阶跃 `stepaudio-2.5-asr`；公网 http 下浏览器不给麦克风 |
-| OpenShell、NAT | — | ❌ 未开始 | 砍减清单第一项 |
+| 模块            | 代码                                | 状态            | 与设计的差异                                                                                             |
+| ------------- | --------------------------------- | ------------- | -------------------------------------------------------------------------------------------------- |
+| JEV 决策客户端     | `agent/decision.py`               | ✅ 真机验证        | 结果缓存（SQLite），另有 replay 模式可离线重放                                                                     |
+| 模型路由          | `agent/router.py`                 | ✅ 真机验证        | 本地主模型 = vLLM + Nemotron，备用 = Ollama + Qwen，难题 = step-5；轮内失败自动 本地→备用→云端；本地模型连续 2 次给出非法工具参数也会升级      |
+| 技能选择          | `agent/skills.py`                 | ✅ 真机 A/B      | 新增 `skill_none`：第一级 P(none) ≥ 0.50 直接判无技能（实测问题：门控值高时会绕过 none 误选）；`skill_multi` 0.70 → 0.50（按任务集标定） |
+| 工具门控          | `agent/gate.py`                   | ✅ 真机标定        | **由单问题改为两问**：in_scope（合理步骤）+ collateral（会不会删改无关内容）。单问题实测分不开合法与越界调用                                 |
+| 上下文压缩         | `agent/context.py`                | ✅ 真机验证        | 分两阶段：先截短旧的长工具结果，再按整轮打分；tool_calls 配对永远完整；JEV 说"必须保留"但预算不够时退一步留摘要，并标 `summarize_forced`             |
+| 记忆            | `agent/memory.py`                 | ✅ 真机验证        | 关键词召回用中文二元组 + 实体匹配；每轮自动写一条情景记忆；抽取候选由本地模型完成                                                         |
+| 工具            | `agent/tools/`                    | ✅             | 文件、git（无 push）、白名单命令、Obsidian 只读、Linear（只能访问演示项目）                                                  |
+| 决策轨迹          | `agent/trace.py`                  | ✅             | 格式见 `docs/接口/03-决策轨迹格式.md`                                                                         |
+| Web 面板        | `agent/server.py`、`web/`          | ✅ 真机验证        | 标准库 HTTP + SSE 后端，Vite + TypeScript 前端；实时决策轨迹、网页确认写操作、长期记忆管理                                       |
+| 语音输入          | `agent/asr.py`、`web/src/voice.ts` | 🟡 除真人麦克风外已验证 | 浏览器录音转 16 kHz WAV → 阶跃 `stepaudio-2.5-asr`；公网 http 下浏览器不给麦克风                                       |
+| OpenShell、NAT | —                                 | ❌ 未开始         | 砍减清单第一项                                                                                            |
 
 **实测数据（节点真机，2026-09-24）**
 

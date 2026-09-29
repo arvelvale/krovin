@@ -1,5 +1,8 @@
 import { Check, ChevronLeft, CircleAlert, Globe, KeyRound, LoaderCircle, Lock, Plus, RefreshCw, Route, Trash2, X, Zap } from "lucide";
+import { createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { api, ApiError } from "../api";
+import GlideSelect, { type GlideSelectOption } from "../components/GlideSelect.jsx";
 import { loadStatus, toast, update } from "../store";
 import type { ModelsView, Preset, ProviderView, Slot } from "../types";
 import { h, icon, mount } from "./dom";
@@ -34,7 +37,7 @@ const errText = (e: unknown) => (e instanceof ApiError ? e.message : "出了点�
  * 模型设置抽屉。里面有输入框，所以和输入区一样只建一次、自己管理重绘
  * （全局重绘会让正在填的 Key 和地址丢掉）。open() 时从后端重新拉一次。
  */
-export function createModelSettings(): { el: HTMLElement; open: () => void } {
+export function createModelSettings(): { el: HTMLElement; open: () => void; close: () => void } {
   let view: ModelsView | null = null;
   let draft: Draft | null = null;
   let picking = false;          // 正在选预设
@@ -43,6 +46,9 @@ export function createModelSettings(): { el: HTMLElement; open: () => void } {
   let discovering = false;
   let test: TestState | null = null;
   let loadError = "";
+  let switchMotion: { key: "private" | "useProxy"; direction: "on" | "off" } | null = null;
+  let selectHosts: { host: HTMLElement; key: Slot; label: string; value: string; options: GlideSelectOption[] }[] = [];
+  let selectRoots: Root[] = [];
 
   const body = h("div", { class: "drawer-body" });
   const title = h("h3", null, "模型设置");
@@ -75,25 +81,13 @@ export function createModelSettings(): { el: HTMLElement; open: () => void } {
     const ref = view!.slots[key];
     const current = ref ? `${ref.provider}\u0000${ref.model}` : "";
     const prov = view!.providers.find((p) => p.id === ref?.provider);
-    const select = h("select", {
-      class: "select",
-      attrs: { "aria-label": `${label}模型` },
-      onchange: async (e: Event) => {
-        const [provider, model] = (e.target as HTMLSelectElement).value.split("\u0000");
-        try {
-          applied(await api.setSlots({ [key]: { provider, model } }), `「${label}」已换成 ${model}，新对话生效`);
-        } catch (err) {
-          toast(errText(err), "error");
-        }
-        render();
-      },
-    },
-    view!.providers.map((p) => h("optgroup", { attrs: { label: p.name } },
-      p.models.map((m) => {
-        const o = h("option", { attrs: { value: `${p.id}\u0000${m.name}` } }, m.name);
-        o.selected = `${p.id}\u0000${m.name}` === current;
-        return o;
-      }))));
+    const select = h("div", { class: "model-select-host" });
+    selectHosts.push({
+      host: select, key, label, value: current,
+      options: view!.providers.flatMap((p) => p.models.map((m) => ({
+        value: `${p.id}\u0000${m.name}`, label: m.name, tag: p.name,
+      }))),
+    });
     return h("div", { class: "slot-row" },
       h("div", { class: "slot-text" },
         h("div", { class: "slot-label" }, label, prov && privacyTag(prov)),
@@ -265,8 +259,13 @@ export function createModelSettings(): { el: HTMLElement; open: () => void } {
     return h("div", { class: "toggle-row" },
       h("div", null, h("div", { class: "field-label" }, label), h("div", { class: "field-hint" }, hint)),
       h("button", {
-        class: ["switch", on && "on"], attrs: { role: "switch", "aria-checked": String(on), type: "button", "aria-label": label },
-        onclick: () => { draft![key] = !draft![key]; render(); },
+        class: ["switch", on && "on", switchMotion?.key === key && `switch-motion-${switchMotion.direction}`],
+        attrs: { role: "switch", "aria-checked": String(on), type: "button", "aria-label": label },
+        onclick: () => {
+          draft![key] = !draft![key];
+          switchMotion = { key, direction: draft![key] ? "on" : "off" };
+          render();
+        },
       }, h("span", { class: "knob" })));
   }
 
@@ -323,17 +322,55 @@ export function createModelSettings(): { el: HTMLElement; open: () => void } {
   }
 
   function render() {
+    for (const root of selectRoots) root.unmount();
+    selectRoots = [];
+    selectHosts = [];
     if (draft) {
       title.textContent = draft.isNew ? "添加供应商" : draft.name || draft.id;
       sub.textContent = draft.isNew ? "填好地址和 Key，保存后可以拉取模型、测试连通" : "修改后点保存；新建的对话生效";
       mount(body, ...editPage());
+      switchMotion = null;
       return;
     }
+    switchMotion = null;
     title.textContent = "模型设置";
     sub.textContent = "登记你自己的模型服务，再给主力、备用、难题各选一个。";
     if (loadError) mount(body, h("p", { class: "muted drawer-empty" }, loadError));
     else if (!view) mount(body, h("p", { class: "muted drawer-empty" }, "正在读取…"));
-    else mount(body, ...listPage());
+    else {
+      mount(body, ...listPage());
+      for (const { host, key, label, value, options } of selectHosts) {
+        const root = createRoot(host);
+        selectRoots.push(root);
+        root.render(createElement(GlideSelect, {
+          options,
+          value,
+          onChange: async (next) => {
+            const [provider, model] = next.split("\u0000");
+            try {
+              applied(await api.setSlots({ [key]: { provider, model } }), `「${label}」已换成 ${model}，新对话生效`);
+            } catch (err) {
+              toast(errText(err), "error");
+            }
+            render();
+          },
+          placeholder: "选择模型",
+          ariaLabel: `${label}模型`,
+          showTags: true,
+          accentColor: "#ffffff",
+          surfaceColor: "#25262b",
+          highlightColor: "#555860",
+          textColor: "#f5f5f6",
+          size: "lg",
+          radius: 12,
+          menuWidth: 250,
+          align: "right",
+          popDuration: 160,
+          glideDuration: 180,
+          disabled: options.length === 0,
+        }));
+      }
+    }
   }
 
   return {
@@ -343,6 +380,11 @@ export function createModelSettings(): { el: HTMLElement; open: () => void } {
       picking = false;
       render();
       void refresh();
+    },
+    close() {
+      for (const root of selectRoots) root.unmount();
+      selectRoots = [];
+      selectHosts = [];
     },
   };
 }

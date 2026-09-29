@@ -1,6 +1,6 @@
 import { Lock, X } from "lucide";
 import { when } from "../format";
-import { approveMemory, forgetMemory, setMemoryTab, state, update } from "../store";
+import { approveMemory, forgetMemory, state, update } from "../store";
 import { h, icon } from "./dom";
 
 const KIND_LABEL: Record<string, string> = {
@@ -18,9 +18,7 @@ export function renderDrawer(): HTMLElement | null {
         h("div", null, h("h3", null, "长期记忆"),
           h("p", { class: "muted small" }, "跨会话记住的事实、约定和偏好。拿不准的会先放在「待确认」，由你决定。")),
         h("button", { class: "icon-btn", title: "关闭", onclick: close }, icon(X, 16))),
-      h("div", { class: "tabs" },
-        h("button", { class: ["tab", tab === "active" && "on"], onclick: () => void setMemoryTab("active") }, "生效中"),
-        h("button", { class: ["tab", tab === "pending" && "on"], onclick: () => void setMemoryTab("pending") }, "待确认")),
+      h("div", { class: "rubber-slot rubber-slot--memory", attrs: { "data-rubber-segment": "memory-tabs" } }),
       h("div", { class: "drawer-body" },
         list.length === 0
           ? h("p", { class: "muted drawer-empty" }, tab === "pending" ? "没有等你确认的记忆" : "还没有记下什么")

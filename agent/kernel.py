@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import dataclasses
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -37,6 +38,8 @@ TRUNCATION_NUDGE = ("（系统提示）上一条输出太长被截断了。不�
 DRIFT_NUDGE = ("（系统提醒）你最近连续 {n} 次写操作都被判断为不像完成当前请求需要的步骤（{tools}）。"
                "停下来对照工作记忆里的待办：任务已经完成（测试通过、已提交）就直接给出最终回复；"
                "还没完成就回到计划里的下一步。要验证某个行为，把它写成测试，不要继续尝试计划外的操作。")
+
+REASONING_DISPLAY_LIMIT = 12000
 
 
 def new_session_id() -> str:
@@ -132,7 +135,28 @@ class Agent:
         self._current_ep = cfg.local
         self._drift: list[str] = []
         self._drift_nudged = 0
+        self.reasoning_listener: Callable[[dict], None] | None = None
         self.ctx.delegate = lambda tasks: subagents.delegate(self, self._current_ep, tasks)
+
+    def _record_reasoning(self, raw: str, turn: int, step: int, model: str) -> None:
+        """把模型确实返回的思考保存给会话页面，不写进决策轨迹。"""
+        text = str(raw or "").strip()
+        if not text:
+            return
+        for secret in (self.cfg.local.api_key, self.cfg.backup.api_key, self.cfg.cloud.api_key,
+                       self.cfg.jev_key, self.cfg.linear_key):
+            if secret and len(secret) >= 6:
+                text = text.replace(secret, "[已隐藏凭据]")
+        text = re.sub(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]{8,}", "Bearer [已隐藏凭据]", text)
+        truncated = len(text) > REASONING_DISPLAY_LIMIT
+        item = {"turn": turn, "step": step, "model": model,
+                "text": text[:REASONING_DISPLAY_LIMIT], "truncated": truncated}
+        self.archive.put("reasoning", f"reasoning-{turn}-{step}", item)
+        if self.reasoning_listener:
+            try:
+                self.reasoning_listener(item)
+            except Exception:  # 页面订阅者中断不能影响 agent
+                pass
 
     # ------------------------------------------------------------------
     def _usage_snapshot(self) -> dict:
@@ -183,6 +207,17 @@ class Agent:
         perm = Permission.READ if spec.permission == "read" else Permission.WRITE_LOCAL
         return dataclasses.replace(tool, permission=perm), True
 
+    @property
+    def yolo(self) -> bool:
+        return self.gate.yolo
+
+    @yolo.setter
+    def yolo(self, on: bool) -> None:
+        on = bool(on)
+        if on != self.gate.yolo:
+            self.gate.yolo = on
+            self.trace.emit("mode.change", {"yolo": on})
+
     def _track_drift(self, tool, g) -> None:
         """写操作的 in_scope 低于门控阈值 = JEV 认为这一步跑偏了。不管用户（或 --yes）最后有没有放行，都记一笔。"""
         if tool.permission == Permission.READ or g.appropriate is None or g.threshold is None or g.fallback:
@@ -222,7 +257,7 @@ class Agent:
             "tool": tool.name, "permission": tool.permission.value, "decision": g.decision, "reason": g.reason,
             "appropriate": None if g.appropriate is None else round(g.appropriate, 3), "threshold": g.threshold,
             "collateral": None if g.collateral is None else round(g.collateral, 3),
-            "confirmed": g.confirmed, "args": call.arguments}, fallback=g.fallback)
+            "confirmed": g.confirmed, "auto": g.auto, "args": call.arguments}, fallback=g.fallback)
         if not g.execute:
             tool_log.append({"tool": tool.name, "ok": False, "denied": True})
             if g.decision == "confirm":
@@ -295,6 +330,7 @@ class Agent:
             messages = [{"role": "system", "content": system}] + self.conv.messages
             self._current_ep = ep  # 子助手在本机不可用时跟随主 agent 当前的模型
             est = estimate_tokens(system) + self.conv.tokens()
+            self.trace.emit("llm.start", {"tier": tier, "endpoint": ep.name, "step": step})
             try:
                 res = self.clients[ep.name].chat(messages, schemas, max_tokens=ep.max_tokens,
                                                  thinking=self.cfg.local_thinking or ep.name == "cloud")
@@ -313,6 +349,7 @@ class Agent:
                 continue
             if res.usage.get("prompt_tokens") and est:
                 self.ratio = min(max(res.usage["prompt_tokens"] / est, 0.5), 2.5)
+            self._record_reasoning(res.reasoning, turn, step, res.model)
             self.trace.emit("llm.call", {"tier": tier, "endpoint": ep.name, "step": step,
                                          "finish_reason": res.finish_reason,
                                          "content_chars": len(res.content), "reasoning_chars": len(res.reasoning),

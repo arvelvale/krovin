@@ -159,6 +159,30 @@ def test_turn_with_web_confirmation(running, cfg):
     assert listing[0]["id"] == sid and listing[0]["title"] == "把 total 改一下" and listing[0]["live"]
 
 
+def test_reasoning_reaches_stream_and_history_without_entering_trace(running):
+    app, port = running
+    cookie = login(port)
+    sid = call(port, "POST", "/api/sessions", {}, cookie=cookie)[1]["id"]
+    app.live[sid].agent.clients["local"].script[0].reasoning = "先读取文件，再核对金额精度。 Bearer test-secret-token-12345"
+
+    def on_event(kind, data):
+        if kind == "confirm":
+            call(port, "POST", f"/api/sessions/{sid}/confirm", {"id": data["id"], "approve": False}, cookie=cookie)
+
+    threading.Timer(0.3, lambda: call(port, "POST", f"/api/sessions/{sid}/turn",
+                                      {"text": "把 total 改一下"}, cookie=cookie)).start()
+    streamed = read_sse(port, sid, cookie, {"turn_done"}, on_event)
+    trace_types = [data["type"] for kind, data in streamed if kind == "trace"]
+    assert trace_types.index("llm.start") < trace_types.index("llm.call")
+    thought = next(data for kind, data in streamed if kind == "reasoning")
+    assert thought["step"] == 1 and "先读取文件" in thought["text"]
+    assert "test-secret-token-12345" not in thought["text"]
+
+    status, history, _ = call(port, "GET", f"/api/sessions/{sid}", cookie=cookie)
+    assert status == 200 and history["reasoning"] == [thought]
+    assert all("先读取文件" not in json.dumps(event, ensure_ascii=False) for event in history["events"])
+
+
 def test_busy_session_rejects_second_turn(running):
     app, port = running
     cookie = login(port)

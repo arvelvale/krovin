@@ -34,6 +34,7 @@ export function h<K extends keyof HTMLElementTagNameMap>(tag: K, props?: Props |
       }
     }
   }
+  if (tag === "button" && props?.title && !el.hasAttribute("aria-label")) el.setAttribute("aria-label", props.title);
   append(el, children);
   return el;
 }

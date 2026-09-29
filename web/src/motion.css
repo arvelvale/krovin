@@ -1,0 +1,106 @@
+/* React Bits Spotlight Card / Glare Hover / Animated Content adaptations. */
+.session-list[data-selection-group] {
+  position: relative;
+  isolation: isolate;
+}
+.session-list[data-selection-group] > button { position: relative; z-index: 1; }
+.selection-frame {
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.24);
+  background: linear-gradient(145deg,rgba(255,255,255,.16),rgba(255,255,255,.045));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.2), 0 8px 24px rgba(0,0,0,.18);
+  will-change: left, top, width, height;
+}
+@media (prefers-contrast: more), (forced-colors: active) {
+  .selection-frame {
+    background: transparent;
+    border: 2px solid currentColor;
+    box-shadow: none;
+  }
+}
+.session-list[data-selection-group] .session-item.active,
+.session-list[data-selection-group] .session-item.active:hover {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+.motion-sparks {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  z-index: 200;
+  pointer-events: none;
+}
+
+.suggest-item, .tcard, .confirm, .services, .login-card,
+.mem-card, .prov-card { position: relative; isolation: isolate; }
+.suggest-item::before, .tcard::before, .confirm::before,
+.services::before, .login-card::before, .mem-card::before,
+.prov-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(170px circle at var(--spot-x, 50%) var(--spot-y, 50%), rgba(230, 238, 255, .16), transparent 75%);
+  opacity: 0;
+  transition: opacity .35s ease;
+}
+.suggest-item:hover::before, .suggest-item:focus-visible::before,
+.tcard:hover::before, .confirm:hover::before, .confirm:focus-within::before,
+.services:hover::before, .login-card:focus-within::before,
+.mem-card:hover::before, .prov-card:hover::before { opacity: 1; }
+.suggest-item > *, .tcard > *, .confirm > *, .services > *,
+.login-card > *, .mem-card > *, .prov-card > * { position: relative; z-index: 1; }
+
+/* Glare Hover: a pointer-tracked glint travels only over interactive controls. */
+.btn::after, .suggest-item::after {
+  background: linear-gradient(115deg, transparent 25%, rgba(255,255,255,.22) 50%, transparent 75%);
+  transition: transform .55s cubic-bezier(.16, 1, .3, 1);
+}
+.btn.primary::after { background: linear-gradient(115deg, transparent 25%, rgba(255,255,255,.52) 50%, transparent 75%); }
+.session-item, .side-link, .tab, .seg-btn, .icon-btn, .send, .switch {
+  transition: background .25s, border-color .25s, box-shadow .25s, opacity .25s;
+}
+.switch { transition: background .18s ease, border-color .18s ease; }
+.session-item:hover, .side-link:hover, .tab:hover, .seg-btn:hover,
+.icon-btn:hover, .send:hover:not(:disabled) {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.19), 0 5px 18px rgba(210,220,245,.08);
+}
+.switch .knob { transition: transform .18s ease, background .18s ease; }
+/* A toggled switch is redrawn by the native workbench; animate from its previous state. */
+.switch.switch-motion-on { animation: switch-track-on .18s ease both; }
+.switch.switch-motion-off { animation: switch-track-off .18s ease both; }
+.switch.switch-motion-on .knob { animation: switch-knob-on .18s ease both; }
+.switch.switch-motion-off .knob { animation: switch-knob-off .18s ease both; }
+@keyframes switch-track-on { from { background:#6b6d75; } to { background:#e3e5e9; } }
+@keyframes switch-track-off { from { background:#e3e5e9; } to { background:#6b6d75; } }
+@keyframes switch-knob-on { from { transform:translateX(0); background:#f8f8f8; } to { transform:translateX(16px); background:#202126; } }
+@keyframes switch-knob-off { from { transform:translateX(16px); background:#202126; } to { transform:translateX(0); background:#f8f8f8; } }
+.input-wrap, .composer-box, .text-input, .select {
+  transition: border-color .3s ease, box-shadow .45s cubic-bezier(.18, 1, .3, 1);
+}
+
+/* Transient feedback; frequently redrawn popovers remain visually stable. */
+@media (prefers-reduced-motion: no-preference) {
+  .confirm, .toast {
+    animation: motion-arrive .52s cubic-bezier(.18, .9, .25, 1.18) both;
+  }
+  @keyframes motion-arrive {
+    from { opacity: .35; transform: translateY(12px); }
+    65% { opacity: 1; transform: translateY(-2px); }
+    to { opacity: 1; transform: none; }
+  }
+}
+
+@media (prefers-reduced-motion: reduce), (prefers-contrast: more) {
+  .motion-sparks { display: none; }
+  .suggest-item::before, .tcard::before, .confirm::before,
+  .services::before, .login-card::before, .mem-card::before,
+  .prov-card::before { display: none; }
+}

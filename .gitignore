@@ -20,3 +20,6 @@ reference/fast-jev-compaction-main/
 
 # 带访问口令的评委材料（make_guide.py 生成）
 deliverables/
+
+# 队友提供的本地完整副本；只把筛选后的前端改动合入 web/
+前端优化版/
