@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>KROVIN 项目报告书</title>
+<style>
+  /* A4 打印版式：白底墨字，绿色仅作克制强调；字体走系统栈，保证 PDF 自包含 */
+  :root {
+    --ink: #1a1a1a; --ink-2: #444; --ink-3: #777; --line: #ddd; --line-2: #bbb;
+    --green: #4d7a0a; --green-soft: #eef6e2; --paper: #fff;
+    --sans: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    --mono: "Cascadia Mono", Consolas, monospace;
+    --serif: "Songti SC", "SimSun", serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #f0f0ee; color: var(--ink); font: 400 10.8pt/1.85 var(--sans); }
+  .page {
+    width: 210mm; min-height: 297mm; margin: 12mm auto; padding: 18mm 16mm;
+    background: var(--paper); box-shadow: 0 2px 14px #0002;
+  }
+  .kicker { font-size: 9pt; letter-spacing: .3em; color: var(--green); font-weight: 600; }
+  h1 { font-size: 24pt; font-weight: 700; letter-spacing: -.5px; margin: 6mm 0 2mm; }
+  h1 em { font-style: normal; color: var(--green); }
+  .sub { color: var(--ink-2); font-size: 11pt; }
+  .meta { margin-top: 6mm; padding-top: 4mm; border-top: 1px solid var(--line);
+          display: flex; flex-wrap: wrap; gap: 4mm 12mm; font-size: 9.5pt; color: var(--ink-3); }
+  .meta b { color: var(--ink); font-weight: 600; }
+  .meta a { color: var(--green); text-decoration: none; font-family: var(--mono); font-size: 9pt; }
+
+  h2 { font-size: 14pt; margin: 9mm 0 3mm; padding-left: 3.5mm; border-left: 3.5pt solid var(--green); }
+  h3 { font-size: 11pt; margin: 5mm 0 1.5mm; color: var(--ink); }
+  p { color: var(--ink-2); margin-bottom: 2.6mm; text-align: justify; }
+  p b, li b { color: var(--ink); }
+  ol, ul { margin: 0 0 3mm 6mm; color: var(--ink-2); }
+  li { margin-bottom: 1.6mm; text-align: justify; }
+  code { font-family: var(--mono); font-size: 9.3pt; background: #f4f4f0; padding: 0 4px; border-radius: 2px; color: #333; }
+  .box { background: var(--green-soft); border: 1px solid #d8e6bd; border-radius: 3px; padding: 3mm 4mm; margin: 3mm 0; }
+  .box .t { font-weight: 700; color: var(--green); font-size: 10pt; margin-bottom: 1mm; }
+  table { width: 100%; border-collapse: collapse; margin: 2mm 0 4mm; font-size: 9.6pt; }
+  th, td { border: 1px solid var(--line); padding: 1.8mm 2.6mm; text-align: left; vertical-align: top; }
+  th { background: #f6f6f2; font-weight: 600; color: var(--ink); }
+  td { color: var(--ink-2); }
+  .steps { counter-reset: step; margin: 2mm 0 3mm; }
+  .steps .s { position: relative; padding-left: 9mm; margin-bottom: 2.4mm; color: var(--ink-2); text-align: justify; }
+  .steps .s::before {
+    counter-increment: step; content: counter(step);
+    position: absolute; left: 0; top: .4mm; width: 6mm; height: 6mm; border-radius: 50%;
+    background: var(--green); color: #fff; font-size: 8.5pt; font-weight: 700;
+    display: grid; place-items: center;
+  }
+  .foot { margin-top: 8mm; padding-top: 3mm; border-top: 1px solid var(--line); font-size: 8.8pt; color: var(--ink-3); }
+  .pagebreak { page-break-before: always; }
+  @media print {
+    body { background: #fff; }
+    .page { margin: 0; box-shadow: none; width: auto; min-height: 0; padding: 14mm 13mm; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+
+  <div class="kicker">DGX SPARK HACKATHON · 项目报告书</div>
+  <h1>KROVIN<em>，</em>让每一次「AI 替人动手」都先给人看明白</h1>
+  <p class="sub">跑在 NVIDIA DGX Spark 上的开发流 Agent：读 Linear issue、Obsidian 纪要和人的口述，完成拆解、计划、开发、日志与状态同步。</p>
+  <div class="meta">
+    <span><b>参赛方向</b> DGX Spark 黑客松</span>
+    <span><b>日期</b> 2026-09-29</span>
+    <span><b>GitHub</b> <a href="https://github.com/arvelvale/krovin">github.com/arvelvale/krovin</a></span>
+  </div>
+
+  <h2>一、项目说明</h2>
+  <p>KROVIN 是一个部署在 NVIDIA DGX Spark 节点上的开发流 Agent。它读入 Linear issue、Obsidian 会议纪要和用户口述，跑通「拆解 → 计划 → 开发 → 写日志 → 同步状态」的完整链路：把大 issue 拆成带验收标准的子任务并征得确认后写回 Linear，写出实施计划，在独立分支上改代码、跑测试，按仓库约定补开发日志，最后同步状态。整个过程留在同一个对话里，每一步决策都有迹可循。</p>
+  <p><b>核心亮点一：一切「选哪个」交给独立的决策层。</b>JEV（TypeSafe System One 模型）负责技能选择、模型路由、工具门控、记忆精选与上下文压缩——它只做选择题和评分，不替主模型生成答案；每次选择的概率分布、置信度与所过阈值都写进决策轨迹，面板右侧可逐条翻阅、可复算。</p>
+  <p><b>核心亮点二：人掌握方向有具体的按钮。</b>写操作默认弹出确认卡，先用一句人话说清「要做什么」和「JEV 怎么看」，原始参数折叠在下；被拒绝的调用完整留痕，Agent 不会绕路重写。运行中还可随时点停止键，内核在步边界收尾，未完成事项留在工作记忆里。</p>
+  <p><b>核心亮点三：模型按难度与隐私路由。</b>本地 Nemotron 承担主力推理；连续非法工具参数或难题自动升级到 StepFun；隐私记忆只在私有模型可见，外部调用按深度过滤。</p>
+  <p><b>技术实现与架构：</b>内核为单进程 Python，主循环按步推进，每步前检查上下文压缩与停止请求；技能以 <code>skills/*/SKILL.md</code> 交付，frontmatter 带触发词、工具白名单与负向路由，采用渐进式披露（索引一行进上下文，命中才读全文）；工具层覆盖文件、git、白名单命令、OpenShell 沙箱、Linear 与 Obsidian；上下文超预算时按块压缩，保护目标、约束与未完成事项，原始记录落盘可恢复；Web 面板把会话、模型状态、确认动作与决策轨迹收在同一块工作台。</p>
+  <p><b>优化方案：</b>token 估算倍率用真实用量在线校准；压缩预算与全部阈值集中在 <code>agent/config.py</code> 并带方向注释，改动必须跑对应评估；A/B harness 对同一任务集比较「有 / 无 JEV 决策层」两臂。当前数据如实标注：技能选择任务集为自建训练集，26 条调参后 JEV 臂 100% 对主模型自选 88.5%；扩到 60 条后为 81.7% 对 75.0%，标定仍在进行——100% 是训练集成绩，不代表新任务表现。</p>
+
+  <div class="pagebreak"></div>
+
+  <h2>二、部署说明</h2>
+
+  <h3>2.1 利用本地算力如何部署智能体</h3>
+  <p>智能体主体部署在 DGX Spark 节点（GB10，121 GiB 统一内存）：内核与面板以单进程常驻节点，模型推理全部在本地完成——Nemotron 30B-A3B 由 vLLM 服务，Qwen3.8 27B 由 Ollama 服务。使用方按以下步骤操作：</p>
+  <div class="steps">
+    <div class="s"><b>首次部署（一次性）：</b>双击 <code>krovin-panel.bat</code>，把代码同步到节点并启动常驻面板（tmux 会话 <code>krovin</code>，只听 127.0.0.1，不上公网）。</div>
+    <div class="s"><b>每次使用：先启动 SSH 中转。</b>双击 <code>D:\bigproject\DGX-Spark\krovin-tunnel.bat</code> 并保持窗口打开——它建立本机到节点的反向隧道，做两件事：把节点面板转发到本机 <code>127.0.0.1:9000</code>；让节点访问 JEV / Linear 的境外流量借道本机代理（mihomo，默认 <code>127.0.0.1:10090</code>）出境。隧道断开自动重连。</div>
+    <div class="s"><b>再打开面板：</b>浏览器访问 <code>http://127.0.0.1:9000</code>，输入团队访问口令，进入落地页——可下载本报告书，或点「进入工作台」。</div>
+    <div class="s"><b>填写自己的配置：</b>进入工作台后，在左栏「集成设置」填自己的 Linear API Key（保存前真实连接一次）与 Git 提交身份；在「模型设置」可按需登记任意 OpenAI 兼容供应商。密钥只存节点（600 权限），接口不回传原文。</div>
+    <div class="s"><b>开始干活：</b>新建对话、选择工作区（节点上的一份副本：克隆 git 仓库、上传本地文件夹或新建空白项目），即可下达任务。</div>
+  </div>
+  <div class="box">
+    <div class="t">如不使用本机中转</div>
+    <p style="margin:0">JEV 与 Linear 将不可用：技能选择退回主模型自选，写操作全部改为人工确认；聊天、改代码、跑测试不受影响。关上中转窗口不影响面板常驻，重开即恢复。节点出不了境外是环境事实，我们用 SSH 反向隧道借道操作机代理解决，代价是操作机必须在线——如实告知，不包装成「全离线」。</p>
+  </div>
+
+  <h3>2.2 如何优化大模型</h3>
+  <ul>
+    <li><b>推理服务：</b>vLLM 0.28.0（含 Triton 3.7.1、flashinfer 0.6.16）服务 Nemotron-3.5-Lightning-30B-A3B-NVFP4，量化权重约 21 GB，全量驻留统一内存；两轮代码任务实测观察约 80 token/s（样本极少，仅作观察记录，不作质量结论）。</li>
+    <li><b>备用兜底：</b>Ollama + Qwen3.8 27B（GGUF Q4_K_M，17 GB）作 backup 档，本地主力不可用时自动降级，重试与超时集中在端点配置。</li>
+    <li><b>运行时：</b>本地主循环可关思考（<code>AGENT_LOCAL_THINKING=0</code>）；token 估算按真实 prompt_tokens 在线校准倍率；上下文超预算即按块压缩，保护目标、约束、未完成事项与证据引用。</li>
+    <li><b>路由：</b>JEV 按任务难度决策模型档位，难题升级 StepFun step-5-preview；本地模型连续给出非法工具参数也触发升级。</li>
+    <li><b>评估过未采用（如实标注）：</b>NIM 容器（节点无法直连 nvcr.io、无 NGC key，官方 playbook 步骤已定位）与 TensorRT-LLM 编译路线（GGUF 权重需转换格式），后续若网络与凭据到位再验证。</li>
+  </ul>
+
+  <h3>2.3 如何设计 Agent Skills</h3>
+  <ul>
+    <li><b>物理形态：</b><code>skills/&lt;name&gt;/SKILL.md</code>。frontmatter 含 name、description（前堆触发词）、argument-hint、allowed-tools（工具白名单）、not-for（负向路由，指向正确的其它技能）、version。</li>
+    <li><b>渐进式披露：</b>每个请求只带技能索引（一行）进上下文，命中后才加载全文——避免大 roster 撑爆上下文、拖累选择，这也是 NVIDIA 官方 rag-blueprint skill 的同款做法（已作参考研读）。</li>
+    <li><b>结构化选择：</b>JEV 两级决策。第一级 Choice 对全部技能排序 + 三个门控问题（本轮是否真需要技能）；第二级仅对 top3 读全文精排 + fits 疑问。阈值集中于 config.py，起始 0.30，在任务集上标定后调整。</li>
+    <li><b>质量保障：</b>评测任务集分「有技能覆盖 / 无技能覆盖 / 需组合」三类，含近义技能对与负向用例；A/B 对照「JEV 选择 vs 主模型自选」，输出正确率、误选率、token 与耗时。</li>
+    <li><b>接口冻结：</b>技能文件、任务集、决策轨迹三份格式契约冻结（只增不改），五人并行开发不改字段，评测脚本与实现解耦。</li>
+    <li><b>沙箱执行：</b>跑命令的技能经 OpenShell 沙箱：非 root、系统目录只读、网络只放行软件源，策略 YAML 版本化，随仓库走。</li>
+  </ul>
+
+  <div class="pagebreak"></div>
+
+  <h2>三、技术栈说明</h2>
+  <table>
+    <tr><th style="width:22%">类别</th><th style="width:38%">组件</th><th>用途</th></tr>
+    <tr><td rowspan="6">NVIDIA 平台与 SDK</td><td>NVIDIA DGX Spark（GB10 · aarch64 · 统一内存 121 GiB）</td><td>全部本地推理与智能体运行的硬件平台</td></tr>
+    <tr><td>CUDA（驱动 580.142，报告 CUDA 13.0）</td><td>GPU 计算底座；vLLM / Ollama 经其调用 GPU</td></tr>
+    <tr><td>vLLM 0.28.0（Triton 3.7.1 · flashinfer 0.6.16）</td><td>本地主力推理服务（OpenAI 兼容接口）</td></tr>
+    <tr><td>NVIDIA Nemotron-3.5-Lightning-30B-A3B-NVFP4</td><td>本地主力模型（NVFP4 量化，约 21 GB）</td></tr>
+    <tr><td>NVIDIA OpenShell</td><td>Agent 工具执行沙箱（内核级隔离 + YAML 策略）</td></tr>
+    <tr><td>NVIDIA Nsight Systems（nsys）/ DGX Dashboard</td><td>节点预置的性能剖析与运维面板</td></tr>
+    <tr><td rowspan="2">模型</td><td>Ollama 0.33.2 + Qwen3.8 27B（GGUF Q4_K_M）</td><td>备用模型服务（已验证可用）</td></tr>
+    <tr><td>StepFun step-5-preview</td><td>云端难题档模型（复杂规划、代码难题）</td></tr>
+    <tr><td>决策层</td><td>JEV（TypeSafe System One，jev-latest）</td><td>结构化决策：技能选择 / 模型路由 / 工具门控 / 记忆精选 / 上下文压缩</td></tr>
+    <tr><td>工程栈</td><td>Python 3.12 · TypeScript + Vite · SQLite · tmux · SSH 反向隧道</td><td>单体内核 + 自建 HTTP/SSE 面板；记忆与设置落库；长任务 tmux 托管；跨境流量经操作机代理中转</td></tr>
+  </table>
+  <p style="font-size:9.5pt;color:var(--ink-3)">技能共 13 个（dev-flow 全链路 + 网页构建），全部以 markdown 交付于仓库 <code>skills/</code> 目录；决策轨迹、任务集格式契约见 <code>docs/接口/</code>。</p>
+
+  <div class="foot">
+    KROVIN · 跑在 NVIDIA DGX Spark 上的开发流 Agent · GitHub：<span style="font-family:var(--mono)">github.com/arvelvale/krovin</span><br>
+    本报告书内容与仓库 README、架构文档一致；未验证项均已如实标注，未将未完成组件写入「已完成」。
+  </div>
+
+</main>
+</body>
+</html>

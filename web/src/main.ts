@@ -8,6 +8,7 @@ import { createComposer } from "./ui/composer";
 import { h, icon, mount } from "./ui/dom";
 import { logoMark } from "./ui/logo";
 import { renderDrawer } from "./ui/drawer";
+import { renderLanding } from "./ui/landing";
 import { renderLogin } from "./ui/login";
 import { createModelSettings } from "./ui/models";
 import { artifactView } from "./ui/artifact";
@@ -88,6 +89,14 @@ function render(): void {
   }
   if (!state.authed) {
     if (!root.querySelector(".login")) mount(root, renderLogin());
+    selectionMotion.sync();
+    rubberSegments.sync();
+    glassSurfaces.sync();
+    return;
+  }
+  // 登录后先落落地页（下载项目报告书）；点「进入工作台」才挂工作台
+  if (state.landing) {
+    if (!root.querySelector(".landing")) mount(root, renderLanding());
     selectionMotion.sync();
     rubberSegments.sync();
     glassSurfaces.sync();

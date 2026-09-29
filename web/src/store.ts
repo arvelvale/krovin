@@ -37,6 +37,7 @@ export interface AppState {
   newSession: { useJev: boolean; tier: string; yolo: boolean; bypass: boolean };
   mobileView: "chat" | "trace";
   sidebarOpen: boolean;
+  landing: boolean;  // 登录后先落落地页（下载项目报告书），点「进入工作台」才进对话
   toast: { text: string; kind: "info" | "error" } | null;
 }
 
@@ -56,6 +57,7 @@ export const state: AppState = {
   newSession: { useJev: true, tier: "auto", yolo: false, bypass: false },
   mobileView: "chat",
   sidebarOpen: false,
+  landing: true,
   toast: null,
 };
 
@@ -282,8 +284,14 @@ export async function logout(): Promise<void> {
     update((s) => {
       s.authed = false;
       s.current = null;
+      s.landing = true;  // 下次登录还是先回落地页
     });
   }
+}
+
+/** 落地页 → 工作台 */
+export function enterWorkspace(): void {
+  update((s) => (s.landing = false));
 }
 
 export async function loadStatus(): Promise<void> {
