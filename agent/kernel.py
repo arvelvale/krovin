@@ -326,8 +326,9 @@ class Agent:
         malformed, escalated, truncated_once = 0, False, False
         tool_log: list[dict] = []
         reply, stopped, steps = "", "max_steps", 0
-        for step in range(1, self.cfg.max_steps + 1):
-            steps = step
+        while self.cfg.max_steps is None or steps < self.cfg.max_steps:
+            steps += 1
+            step = steps
             system = self._system(sel, mem, ep.is_private)
             if self.compressor.maybe_compress(self.conv, estimate_tokens(system), self.working, turn, self.ratio):
                 system = self._system(sel, mem, ep.is_private)

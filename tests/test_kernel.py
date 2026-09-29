@@ -156,6 +156,18 @@ def test_max_steps_reports_open_items(cfg, monkeypatch):
     assert res.stopped == "max_steps" and "还没做的事" in res.reply
 
 
+def test_default_long_turn_passes_30_steps_and_compresses(cfg, monkeypatch):
+    assert cfg.max_steps is None
+    cfg.thresholds.context_budget = 3000
+    script = [reply(calls=[("search_text", {"pattern": str(i)})]) for i in range(35)]
+    agent, clients = make_agent(cfg, monkeypatch, script + [reply("长任务完成")], decision=pick(None))
+    monkeypatch.setattr(agent.registry.get("search_text"), "handler", lambda a, c: "很长的输出" * 400)
+    res = agent.run_turn("持续查询直到任务完成")
+    assert res.steps == 36 and res.stopped == "final" and res.reply == "长任务完成"
+    assert any(e["type"] == "context.compress" for e in events(agent))
+    assert len(clients["local"].received) == 36
+
+
 def test_compression_triggers_in_long_session(cfg, monkeypatch):
     cfg.thresholds.context_budget = 3000
     big = "很长的输出" * 400

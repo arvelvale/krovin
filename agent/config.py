@@ -158,7 +158,7 @@ class Config:
     vault_dir: Path
     workspace: Path
     thresholds: Thresholds = field(default_factory=Thresholds)
-    max_steps: int = 30   # 2026-09-24 实测：修一个 bug 用满 16 步还差最后汇报
+    max_steps: int | None = None  # 默认不限制主循环步数；仅测试/离线评估可显式设置正整数预算
     tool_result_chars: int = 6000
     shell_allow: tuple[str, ...] = (
         "python -m pytest",
