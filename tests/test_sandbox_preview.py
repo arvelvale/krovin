@@ -3,6 +3,7 @@ import http.client
 import io
 import shutil
 import subprocess
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -21,7 +22,8 @@ from test_workspaces import make_zip
 class FakeCli:
     """按 openshell 的真实语义模拟：upload 目录 → 目标目录/<目录名>；download 目录 → 目标里直接是内容。"""
 
-    def __init__(self, tmp: Path, alive=True, exec_effect=None, exec_rc=0, exec_out="ok"):
+    def __init__(self, tmp: Path, alive=True, exec_effect=None, exec_rc=0, exec_out="ok", evil_tar=False):
+        self.evil_tar = evil_tar
         self.remote = tmp / "remote"
         self.remote.mkdir()
         self.calls: list[list[str]] = []
@@ -39,9 +41,32 @@ class FakeCli:
             cmd = a[a.index("--") + 1:]
             if cmd == ["true"]:
                 return subprocess.CompletedProcess(argv, 0 if self.alive else 1, "", "")
-            if cmd[:2] == ["sh", "-c"]:
-                shutil.rmtree(self._path(cmd[2].split("rm -rf ")[1].split(" ")[0]), ignore_errors=True)
-                self._path(cmd[2].split("mkdir -p ")[1]).mkdir(parents=True, exist_ok=True)
+            if cmd[:2] == ["sh", "-c"] and "tar czf" in cmd[2]:       # 打包结果（排除依赖目录）
+                remote = self._path(cmd[2].split("mkdir -p ")[1].split("/pull")[0])
+                (remote / "pull").mkdir(parents=True, exist_ok=True)
+                with tarfile.open(remote / "pull" / "out.tgz", "w:gz") as tar:
+                    for f in sorted((remote / "w").rglob("*")):
+                        rel = f.relative_to(remote / "w")
+                        if f.is_file() and not any(x in (".git", "node_modules", ".venv") for x in rel.parts):
+                            tar.add(f, "./" + rel.as_posix())
+                    if self.evil_tar:
+                        for name, kind in (("../../escape.txt", "file"), ("link", "sym")):
+                            info = tarfile.TarInfo(name)
+                            if kind == "sym":
+                                info.type, info.linkname = tarfile.SYMTYPE, "/etc/passwd"
+                                tar.addfile(info)
+                            else:
+                                data = b"pwn"
+                                info.size = len(data)
+                                tar.addfile(info, io.BytesIO(data))
+                return ok
+            if cmd[:2] == ["sh", "-c"]:                             # 清掉上次的源码，保留 node_modules / .venv
+                remote = self._path(cmd[2].split("mkdir -p ")[1].split("/w")[0])
+                (remote / "w").mkdir(parents=True, exist_ok=True)
+                for child in (remote / "w").iterdir():
+                    if child.name not in ("node_modules", ".venv"):
+                        shutil.rmtree(child) if child.is_dir() else child.unlink()
+                shutil.rmtree(remote / "pull", ignore_errors=True)
                 return ok
             wd = self._path(a[a.index("--workdir") + 1])
             if self.exec_effect:
@@ -49,7 +74,7 @@ class FakeCli:
             return subprocess.CompletedProcess(argv, self.exec_rc, self.exec_out, "")
         if a[:2] == ["sandbox", "upload"]:
             src, dest = Path(a[3]), self._path(a[4])
-            shutil.copytree(src, dest / src.name)
+            shutil.copytree(src, dest / src.name, dirs_exist_ok=True)
             return ok
         if a[:2] == ["sandbox", "download"]:
             shutil.copytree(self._path(a[3]), a[4], dirs_exist_ok=True)
@@ -111,6 +136,34 @@ def test_run_skips_symlink_and_escape_paths(tmp_path, ws):
     r = sb.run("x", ws, tag="t2")
     assert ("added", "ok.txt") in r.changed and not (ws / "link").exists() and not (ws / "big.bin").exists()
     assert r.skipped >= 1
+
+
+def test_node_modules_persist_in_sandbox_but_never_sync_back(tmp_path, ws):
+    def install(wd: Path):
+        (wd / "node_modules" / "left-pad").mkdir(parents=True)
+        (wd / "node_modules" / "left-pad" / "index.js").write_text("module.exports=1")
+        (wd / "dist").mkdir()
+        (wd / "dist" / "index.html").write_text("<h1>built</h1>")
+    sb, cli = make_sandbox(tmp_path, exec_effect=install)
+    r = sb.run("npm install && npx vite build", ws, tag="t5")
+    assert ("added", "dist/index.html") in r.changed                        # 构建产物回到工作区
+    assert not (ws / "node_modules" / "left-pad").exists()                # 依赖留在沙箱里，不回到工作区
+    kept = tmp_path / "remote" / "sandbox" / "work" / "t5" / "w" / "node_modules" / "left-pad" / "index.js"
+    assert kept.exists()
+    # 第二次调用：源码被清掉重传，但 node_modules 还在
+    seen = {}
+    sb2 = OpenShellSandbox(cli="openshell", image="img", policy=tmp_path / "none.yaml", runner=cli)
+    cli.exec_effect = lambda wd: seen.update(nm=(wd / "node_modules" / "left-pad" / "index.js").exists(), app=(wd / "app.py").exists())
+    sb2.run("ls", ws, tag="t5")
+    assert seen == {"nm": True, "app": True}
+
+
+def test_untrusted_tar_members_are_skipped(tmp_path, ws):
+    sb, _ = make_sandbox(tmp_path, evil_tar=True, exec_effect=lambda wd: (wd / "ok.txt").write_text("fine"))
+    r = sb.run("x", ws, tag="t6")
+    assert ("added", "ok.txt") in r.changed
+    assert not (ws / "link").exists() and not (tmp_path / "escape.txt").exists() and not (ws.parent / "escape.txt").exists()
+    assert all(p != "escape.txt" for _, p in r.changed)
 
 
 def test_creates_sandbox_when_missing_and_reports_errors(tmp_path, ws):

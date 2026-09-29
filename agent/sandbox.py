@@ -4,9 +4,13 @@
 沙箱把任意代码关在一个没有网络、系统目录只读、只有 /sandbox 可写、以非 root 运行的容器里，所以可以放开命令范围。
 
 一次调用的流程（openshell CLI，全部走本机网关，约几十毫秒）：
-  1. 把工作区复制一份到临时目录（丢掉 .git、node_modules 等，限大小）→ upload 到 /sandbox/work/w
-  2. 在 /sandbox/work/w 里执行命令（--timeout 由我们给）
-  3. download 回来，和上传前逐文件比哈希，新增 / 修改的文件写回工作区（路径过 safe_path，不跟符号链接）
+  1. 把工作区复制一份到临时目录（丢掉 .git、node_modules 等，限大小）→ 清掉沙箱里上次的源码（保留 node_modules / .venv）→ upload
+  2. 在 /sandbox/work/<标识>/w 里执行命令（--timeout 由我们给）
+  3. 在沙箱里打成 tgz（不含 node_modules / .venv / .git）→ download → 安全解包，
+     和上传前逐文件比哈希，新增 / 修改的文件写回工作区（路径过 safe_path，不跟符号链接、只收普通文件）
+
+网络：策略只放行 npm / pip 的软件源（见 sandbox/policy.yaml），所以可以 npm install、npx vite build、tsc；其它网址一律不通。
+依赖装在沙箱里（node_modules 跨调用保留，第二次 npm install 走缓存，几秒），不会同步回工作区；构建产物（dist/）会同步回来，能直接预览。
 
 刻意的取舍：
   · 沙箱里删除文件不会同步回工作区（只增改，不删），避免一条 rm 误伤真实工作区；
@@ -19,6 +23,7 @@ import hashlib
 import os
 import shutil
 import subprocess
+import tarfile
 import tempfile
 import threading
 import time
@@ -35,6 +40,7 @@ MAX_FILE = 5 * 1024 * 1024
 MAX_TOTAL = 60 * 1024 * 1024
 MAX_FILES = 3000
 MAX_BACK = 400          # 单次最多写回多少个文件
+KEEP_IN_SANDBOX = ("node_modules", ".venv")   # 每次清理源码时保留、也不同步回工作区
 
 
 class SandboxError(ToolError):
@@ -69,6 +75,24 @@ def _walk(root: Path):
             yield p.relative_to(root).as_posix(), p
 
 
+def _safe_untar(archive: Path, dest: Path) -> None:
+    """只解普通文件；路径带 .. 或绝对路径的、符号链接、设备文件一律跳过（沙箱里的代码是不受信任的）。"""
+    root = dest.resolve()
+    with tarfile.open(archive, "r:gz") as tar:
+        for m in tar:
+            if not m.isreg():
+                continue
+            target = (root / m.name).resolve()
+            if root not in target.parents:
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            src = tar.extractfile(m)
+            if src is None:
+                continue
+            with src, open(target, "wb") as f:
+                shutil.copyfileobj(src, f)
+
+
 class OpenShellSandbox:
     def __init__(self, cli: str | None = None, image: str | None = None, policy: Path | None = None,
                  runner=subprocess.run):
@@ -80,6 +104,7 @@ class OpenShellSandbox:
         self._run = runner
         self._lock = threading.Lock()
         self._ok_until = 0.0
+        self._policy_applied = False
 
     # ---------------- CLI ----------------
     def _cli(self, *argv: str, timeout: float = 30) -> subprocess.CompletedProcess:
@@ -119,6 +144,10 @@ class OpenShellSandbox:
                 time.sleep(1)
             else:
                 raise SandboxError("沙箱创建后一直没就绪")
+        if not self._policy_applied and self.policy.exists():
+            # 沙箱是长期存在的，策略文件改了（比如新放行了软件源）要推到已有的沙箱上；每个面板进程只推一次
+            p = self._cli("policy", "set", self.name, "--policy", str(self.policy), "--wait", timeout=90)
+            self._policy_applied = p.returncode == 0
         self._ok_until = time.monotonic() + 60
 
     def available(self) -> tuple[bool, str]:
@@ -137,8 +166,10 @@ class OpenShellSandbox:
             stage = Path(tmp) / "w"
             before = self._stage(workspace, stage)
             t0 = time.monotonic()
+            keep = " ".join(f"! -name {k}" for k in KEEP_IN_SANDBOX)
             self._cli("sandbox", "exec", "-n", self.name, "--timeout", "30", "--", "sh", "-c",
-                      f"rm -rf {remote} && mkdir -p {remote}", timeout=45)
+                      f"mkdir -p {remote}/w && cd {remote}/w && find . -mindepth 1 -maxdepth 1 {keep} -exec rm -rf {{}} +"
+                      f" && rm -rf {remote}/pull", timeout=45)
             up = self._cli("sandbox", "upload", self.name, str(stage), remote, timeout=120)
             if up.returncode != 0:
                 raise SandboxError("上传工作区到沙箱失败：" + (up.stderr or up.stdout).strip()[-200:])
@@ -146,7 +177,7 @@ class OpenShellSandbox:
             p = self._cli("sandbox", "exec", "-n", self.name, "--workdir", workdir, "--timeout", str(timeout), "--",
                           "bash", "-lc", command, timeout=timeout + 20)
             output = (p.stdout or "") + (("\n" + p.stderr) if p.stderr and p.stderr.strip() else "")
-            changed, skipped = self._pull(workdir, workspace, Path(tmp) / "out", before)
+            changed, skipped = self._pull(remote, workspace, Path(tmp) / "out", before)
             return SandboxResult(output.strip(), p.returncode, changed, skipped, time.monotonic() - t0)
 
     def _stage(self, workspace: Path, stage: Path) -> dict[str, str]:
@@ -167,11 +198,20 @@ class OpenShellSandbox:
             hashes[rel] = _sha(src)
         return hashes
 
-    def _pull(self, workdir: str, workspace: Path, out: Path, before: dict[str, str]) -> tuple[list[tuple[str, str]], int]:
-        out.mkdir(parents=True, exist_ok=True)
-        d = self._cli("sandbox", "download", self.name, workdir, str(out), timeout=120)
-        if d.returncode != 0:
+    def _pull(self, remote: str, workspace: Path, out: Path, before: dict[str, str]) -> tuple[list[tuple[str, str]], int]:
+        """先在沙箱里打成 tgz（排除依赖目录），只下载这一个文件，再本地安全解包。"""
+        excl = " ".join(f"--exclude=./{k}" for k in (*KEEP_IN_SANDBOX, ".git"))
+        t = self._cli("sandbox", "exec", "-n", self.name, "--timeout", "60", "--", "sh", "-c",
+                      f"mkdir -p {remote}/pull && tar czf {remote}/pull/out.tgz {excl} -C {remote}/w .", timeout=90)
+        if t.returncode != 0:
+            raise SandboxError("在沙箱里打包结果失败：" + (t.stderr or t.stdout).strip()[-200:])
+        dl = out.parent / "dl"
+        dl.mkdir(parents=True, exist_ok=True)
+        d = self._cli("sandbox", "download", self.name, f"{remote}/pull", str(dl), timeout=120)
+        if d.returncode != 0 or not (dl / "out.tgz").exists():
             raise SandboxError("从沙箱取回文件失败：" + (d.stderr or d.stdout).strip()[-200:])
+        out.mkdir(parents=True, exist_ok=True)
+        _safe_untar(dl / "out.tgz", out)
         changed: list[tuple[str, str]] = []
         skipped = 0
         for rel, src in _walk(out):

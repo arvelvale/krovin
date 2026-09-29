@@ -2,7 +2,7 @@
 # KROVIN的代码执行沙箱策略（OpenShell）。基于镜像自带的 /etc/openshell/policy.yaml 收紧：
 #   · 文件系统：系统目录只读，只有 /sandbox 和 /tmp 可写（工作区副本放在 /sandbox/work/）；
 #   · 进程：以非 root 的 sandbox 用户运行；
-#   · 网络：一条放行规则都没有 —— agent 写的代码出不了网（npm install / pip install / curl 都会被 403）。
+#   · 网络：只放行包管理器的软件源（npm、pip 的官方源和国内镜像），其它一律 403（curl 任意网址、访问内网都不通）。
 # 要放行某个域名，在 network_policies 里加一条，格式见镜像里的 /etc/openshell/policy.yaml。
 version: 1
 
@@ -28,4 +28,30 @@ process:
   run_as_user: sandbox
   run_as_group: sandbox
 
-network_policies: {}
+network_policies:
+  # 装依赖：npm / pip 只能访问软件源。软件源本身只读（发布要凭证，沙箱里没有）。
+  npm_registry:
+    name: npm-registry
+    endpoints:
+      # 作用域包（@types/node、@vitejs/…）的请求路径里带编码的 /（%2F），必须显式允许，否则 npm install 会一直重试超时
+      - { host: registry.npmjs.org, port: 443, protocol: rest, enforcement: enforce, access: read-only, allow_encoded_slash: true }
+      - { host: registry.npmmirror.com, port: 443, protocol: rest, enforcement: enforce, access: read-only, allow_encoded_slash: true }
+      - { host: cdn.npmmirror.com, port: 443, protocol: rest, enforcement: enforce, access: read-only, allow_encoded_slash: true }
+    binaries:
+      - { path: /usr/bin/node }
+      - { path: /usr/bin/npm }
+      - { path: /usr/bin/npx }
+      - { path: "/usr/lib/node_modules/**" }
+
+  pypi:
+    name: pypi
+    endpoints:
+      - { host: pypi.org, port: 443 }
+      - { host: files.pythonhosted.org, port: 443 }
+      - { host: pypi.tuna.tsinghua.edu.cn, port: 443 }
+    binaries:
+      - { path: /sandbox/.venv/bin/python }
+      - { path: /sandbox/.venv/bin/python3 }
+      - { path: /sandbox/.venv/bin/pip }
+      - { path: /usr/local/bin/uv }
+      - { path: "/sandbox/.uv/python/**" }
