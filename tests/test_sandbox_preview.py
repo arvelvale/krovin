@@ -181,7 +181,7 @@ def test_preview_token_flow_and_isolation(running):
     assert raw_get(port, "/preview/forged-token/index.html")[0] == 404
     # 只读：不接受写方法；令牌过期后失效
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
-    conn.request("POST", url + "index.html", body=b"x")
+    conn.request("POST", url + "index.html", headers={"Content-Length": "0"})  # 不带请求体：服务端回 405 不读体，带体时 Windows 上偶发连接重置
     assert conn.getresponse().status == 405
     token = url.split("/")[2]
     app.previews[token] = (wid, 0)

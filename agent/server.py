@@ -221,11 +221,29 @@ def _meta_path(data_dir: Path, sid: str) -> Path:
     return data_dir / "runs" / sid / "meta.json"
 
 
-def read_title(data_dir: Path, sid: str) -> str:
+def read_meta(data_dir: Path, sid: str) -> dict:
+    """会话的附加信息（runs/<id>/meta.json）：自定义标题、固定使用的工作区 id。不属于轨迹契约，轨迹文件不动。"""
     try:
-        return str(json.loads(_meta_path(data_dir, sid).read_text(encoding="utf-8")).get("title", ""))
-    except (OSError, json.JSONDecodeError, AttributeError):
-        return ""
+        data = json.loads(_meta_path(data_dir, sid).read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def update_meta(data_dir: Path, sid: str, **kv) -> dict:
+    meta = {**read_meta(data_dir, sid), **kv}
+    meta = {k: v for k, v in meta.items() if v not in (None, "")}
+    path = _meta_path(data_dir, sid)
+    if meta:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    else:
+        path.unlink(missing_ok=True)
+    return meta
+
+
+def read_title(data_dir: Path, sid: str) -> str:
+    return str(read_meta(data_dir, sid).get("title", ""))
 
 
 def rename_session(data_dir: Path, sid: str, title: str) -> str:
@@ -233,12 +251,7 @@ def rename_session(data_dir: Path, sid: str, title: str) -> str:
     if not SESSION_ID.match(sid):
         raise ValueError("会话编号不合法")
     title = " ".join(title.split())[:60]
-    path = _meta_path(data_dir, sid)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if title:
-        path.write_text(json.dumps({"title": title}, ensure_ascii=False), encoding="utf-8")
-    else:
-        path.unlink(missing_ok=True)
+    update_meta(data_dir, sid, title=title)
     return title
 
 
@@ -539,9 +552,22 @@ class App:
                         self.agent_factory)
         if yolo:
             s.set_yolo(True)
+        update_meta(self.cfg.data_dir, s.id, workspace_id=workspace or self._active_id("workspace"))
         with self._lock:
             self.live[s.id] = s
         return s
+
+    def session_workspace(self, sid: str, live: LiveSession | None) -> tuple[str | None, str | None]:
+        """(工作区 id, 名字)：新会话从 meta 读；老会话（没写过 meta）在线时退回按路径找名字。"""
+        wid = read_meta(self.cfg.data_dir, sid).get("workspace_id")
+        if wid:
+            try:
+                return wid, self.workspaces.get(wid, "workspace")["name"]
+            except WorkspaceError:
+                return None, None  # 工作区已被删除
+        if live is not None:
+            return None, self.workspace_label(live.agent.cfg.workspace)
+        return None, None
 
 
 def make_handler(app: App):
@@ -723,7 +749,8 @@ def make_handler(app: App):
                     "use_jev": s.use_jev if s else None,
                     "tier": (s.agent.force_tier or "auto") if s else None,
                     "yolo": bool(s.agent.yolo) if s else False,
-                    "workspace": app.workspace_label(s.agent.cfg.workspace) if s else None,
+                    "workspace_id": app.session_workspace(sid, s)[0],
+                    "workspace": app.session_workspace(sid, s)[1],
                     "working": s.agent.working.to_dict() if s else None,
                     "pending": [p["public"] for p in s.pending.values()] if s else [],
                 })
