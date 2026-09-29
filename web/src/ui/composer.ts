@@ -1,7 +1,8 @@
-import { ArrowUp, LoaderCircle, Mic, Square, Zap } from "lucide";
+import { ArrowUp, LoaderCircle, Mic, Square } from "lucide";
 import { api, ApiError } from "../api";
-import { sendTurn, setYolo, state, toast } from "../store";
+import { createSession, sendTurn, setYolo, state, toast } from "../store";
 import { MAX_SECONDS, Recorder, voiceSupported } from "../voice";
+import { createComposerPickers } from "./composer-pickers";
 import { h, icon, mount } from "./dom";
 
 type VoiceState = "idle" | "recording" | "transcribing";
@@ -23,11 +24,7 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
   const jevLabel = h("span", { class: "composer-jev-label" });
   const jevStatus = h("span", { class: "composer-jev-status", attrs: { role: "status", "aria-live": "polite" } },
     h("span", { class: "composer-jev-dot", attrs: { "aria-hidden": "true" } }), jevLabel);
-  const yoloBtn = h("button", {
-    class: "composer-yolo", attrs: { type: "button", "aria-pressed": "false" },
-    title: "全自动：写文件、提交、改 Linear 都不再等你确认（技能白名单、路径与沙箱限制、JEV 对外部写的拦截照旧）。也可以在输入框里发 /yolo 开关",
-  }, icon(Zap, 12), h("span", null, "全自动"));
-  yoloBtn.addEventListener("click", () => void setYolo(!state.current?.yolo));
+  const pickers = createComposerPickers();
   const tierSlot = h("div", { class: "rubber-slot rubber-slot--composer", attrs: { "data-rubber-segment": "composer-tier" } });
   const hint = h("div", { class: "composer-hint" });
   const level = h("span", { class: "level" });
@@ -37,7 +34,10 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
     textarea.style.height = `${Math.min(textarea.scrollHeight, 220)}px`;
   };
 
-  const busy = () => !state.current?.live || !!state.current?.busy;
+  // 还没有对话（欢迎页）时也能直接输入，发送时自动新建；历史会话只读
+  const busy = () => (state.current ? !state.current.live || !!state.current.busy : false);
+
+  const currentLive = () => !!state.current?.live;
 
   async function submit() {
     const text = textarea.value.trim();
@@ -49,6 +49,10 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
       return;
     }
     if (!text || busy() || voice !== "idle") return;
+    if (!state.current) {
+      await createSession();
+      if (!currentLive()) return;
+    }
     const ok = await sendTurn(text, voiceDraft ? "voice" : "text");
     if (ok) {
       textarea.value = "";
@@ -131,21 +135,19 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
   function sync() {
     const cur = state.current;
     const disabled = busy();
-    textarea.disabled = !cur?.live;
+    textarea.disabled = !!cur && !cur.live;
     sendBtn.disabled = disabled || !textarea.value.trim() || voice !== "idle";
-    micBtn.disabled = !cur?.live || voice === "transcribing";
+    micBtn.disabled = (!!cur && !cur.live) || voice === "transcribing";
     micBtn.classList.toggle("recording", voice === "recording");
     micBtn.title = voice === "recording" ? "再点一下结束录音" : "语音输入";
     micBtn.setAttribute("aria-label", micBtn.title);
-    const jevText = !cur ? "JEV 未开始" : cur.useJev === true ? "JEV 决策层" : cur.useJev === false ? "基线 · 无 JEV" : "JEV 状态未知";
+    const jevText = !cur ? (state.newSession.useJev ? "JEV 决策层" : "基线 · 无 JEV") : cur.useJev === true ? "JEV 决策层" : cur.useJev === false ? "基线 · 无 JEV" : "JEV 状态未知";
     jevLabel.textContent = jevText;
     jevStatus.title = jevText;
-    jevStatus.classList.toggle("on", cur?.useJev === true);
-    yoloBtn.disabled = !cur?.live;
-    yoloBtn.classList.toggle("on", !!cur?.yolo);
-    yoloBtn.setAttribute("aria-pressed", String(!!cur?.yolo));
+    jevStatus.classList.toggle("on", cur ? cur.useJev === true : state.newSession.useJev);
+    pickers.sync();
     mount(micBtn, voice === "transcribing" ? icon(LoaderCircle, 16, "spin") : voice === "recording" ? icon(Square, 14) : icon(Mic, 16));
-    if (!cur) hint.textContent = "先在左边新建一个对话";
+    if (!cur) hint.textContent = "直接输入就会新建对话 · Enter 发送";
     else if (!cur.live) hint.textContent = "这是历史会话，只能查看；新建对话才能继续";
     else if (voice === "recording") mount(hint, level, `正在听 ${seconds}s · 再点一下结束（最长 ${MAX_SECONDS}s）`);
     else if (voice === "transcribing") hint.textContent = "正在把语音转成文字…";
@@ -156,9 +158,9 @@ export function createComposer(): { el: HTMLElement; sync: () => void } {
   const el = h("div", { class: "composer" },
     h("div", { class: "composer-box" }, textarea,
       h("div", { class: "composer-toolbar" },
-        h("div", { class: "composer-controls" }, jevStatus, yoloBtn, tierSlot),
+        h("div", { class: "composer-controls" }, jevStatus, tierSlot),
         h("div", { class: "composer-actions" }, micBtn, sendBtn))),
-    hint);
+    pickers.el, hint);
   sync();
   return { el, sync };
 }

@@ -291,6 +291,8 @@ def test_session_uses_active_vault_and_git_identity(running, cfg):
     agent = app.live[s["id"]].agent
     assert agent.ctx.vault == app.workspaces.path(vid, "vault") and (agent.ctx.vault / "周会.md").exists()
     assert agent.ctx.git_identity == ("晨熠", "a@b.c")
+    # 会话详情带上它固定用的工作区名字（输入框下面的选择器显示这个）
+    assert call(port, "GET", f"/api/sessions/{s['id']}", cookie=cookie)[1]["workspace"] == "演示（tinyledger）"
     # 笔记库只能设给 vault、工作区只能设给 workspace，不能串
     wid = app.workspaces.create_empty("普通项目")["id"]
     assert (call(port, "POST", f"/api/workspaces/{wid}/activate", {}, cookie=cookie)[1]["active_vault"]) == vid

@@ -4,7 +4,7 @@ import {
 } from "lucide";
 import "../setup.css";
 import { api, ApiError } from "../api";
-import { loadStatus, toast, update } from "../store";
+import { loadStatus, toast, update, useWorkspace } from "../store";
 import type {
   IntegrationsView, LinearDiscover, WsChanges, WsChangeStatus, WsEntry, WsFile, WsItem, WsListing,
 } from "../types";
@@ -44,8 +44,10 @@ export interface Setup {
   el: HTMLElement;
   open: () => void;
   close: () => void;
-  /** 从别处（侧栏、首次进入）请求打开；真正的挂载由 main.ts 的重绘完成 */
-  request: (tab: SetupTab, wizard?: boolean) => void;
+  /** 从别处（侧栏、首次进入、输入框下的选择器）请求打开；真正的挂载由 main.ts 的重绘完成 */
+  request: (tab: SetupTab, wizard?: boolean, opts?: { addMode?: AddMode }) => void;
+  /** 直接弹出选择文件夹的对话框：选完上传、设为当前工作空间并新开对话（必须在用户点击里调用） */
+  pickFolder: () => void;
 }
 
 export function createSetup(): Setup {
@@ -62,7 +64,8 @@ export function createSetup(): Setup {
   let browse: Browse | null = null;
   const lin = { key: "", found: null as LinearDiscover | null, team: "", project: "", busy: false };
   const git = { name: "", email: "", host: "github.com", token: "" };
-  let pending: { tab: SetupTab; wizard: boolean } = { tab: "workspace", wizard: false };
+  let pending: { tab: SetupTab; wizard: boolean; addMode?: AddMode } = { tab: "workspace", wizard: false };
+  let autoUse = false; // 这次导入完成后直接用它（输入框下的「打开本地文件夹」）
 
   const title = h("h3", null, "工作区与集成");
   const sub = h("p", { class: "muted small" });
@@ -215,6 +218,11 @@ export function createSetup(): Setup {
     form.name = form.url = form.branch = "";
     addOpen = false;
     applied(l, `已添加「${made?.name ?? ""}」`);
+    if (made && autoUse) {
+      autoUse = false;
+      void useWorkspace(made.id, made.name);
+      return;
+    }
     if (made && window.confirm(`把「${made.name}」设为当前${kind === "vault" ? "笔记库" : "工作区"}吗？新对话会用它。`)) void activate(made);
   }
 
@@ -599,14 +607,30 @@ export function createSetup(): Setup {
 
   return {
     el,
-    request(t, w = false) {
-      pending = { tab: t, wizard: w };
+    request(t, w = false, opts) {
+      pending = { tab: t, wizard: w, addMode: opts?.addMode };
       update((s) => (s.drawer = "setup"));
+    },
+    pickFolder() {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.setAttribute("webkitdirectory", "");
+      input.multiple = true;
+      input.addEventListener("change", () => {
+        if (!input.files?.length) return;
+        autoUse = true;
+        pending = { tab: "workspace", wizard: false };
+        update((s) => (s.drawer = "setup"));  // 打开抽屉，上传进度在里面看
+        setTimeout(() => void uploadFolder([...input.files!], "workspace"), 0);
+      });
+      input.click();
     },
     open() {
       ({ tab, wizard } = pending);
+      const mode = pending.addMode;
       pending = { tab: "workspace", wizard: false };
-      browse = null; addOpen = false; busy = "";
+      browse = null; addOpen = !!mode; busy = "";
+      if (mode) addMode = mode;
       lin.key = lin.project = ""; lin.found = null; git.token = "";
       render();
       void refresh();

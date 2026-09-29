@@ -10,7 +10,8 @@ export interface Current {
   busy: boolean;
   useJev: boolean | null;
   tier: string;
-  yolo: boolean; // 全自动：写操作不再等你确认
+  yolo: boolean; // 全自动：原本要问你的确认改由 JEV 自动决定
+  workspace: string | null; // 这个会话固定使用的工作区名字
   turns: Map<number, Turn>;
   working: Working | null;
   confirms: Map<string, ConfirmItem>;
@@ -117,7 +118,7 @@ function applyEvent(cur: Current, ev: TraceEvent): void {
 
 function fromDetail(d: SessionDetail): Current {
   const cur: Current = {
-    id: d.id, live: d.live, busy: d.busy, useJev: d.use_jev, tier: d.tier ?? "auto", yolo: !!d.yolo,
+    id: d.id, live: d.live, busy: d.busy, useJev: d.use_jev, tier: d.tier ?? "auto", yolo: !!d.yolo, workspace: d.workspace ?? null,
     turns: new Map(), working: d.working, confirms: new Map(), pendingInput: null, stream: "none",
   };
   for (const ev of d.events) applyEvent(cur, ev);
@@ -377,6 +378,18 @@ export async function answerConfirm(confirmId: string, approve: boolean): Promis
   }
 }
 
+/** 输入框下面的工作空间选择器：设为当前；已经有对话时顺手新开一个（当前对话固定在原来的工作区里，不动它） */
+export async function useWorkspace(id: string, name: string): Promise<void> {
+  try {
+    await api.activateWorkspace(id);
+    await loadStatus();
+    if (state.current) await createSession();
+    toast(`已切换到「${name}」`);
+  } catch (err) {
+    fail(err);
+  }
+}
+
 export async function renameSession(id: string, title: string): Promise<void> {
   try {
     await api.renameSession(id, title);
@@ -407,7 +420,7 @@ export async function setYolo(on: boolean): Promise<void> {
   try {
     const r = await api.setYolo(cur.id, on);
     update((s) => s.current && (s.current.yolo = r.yolo));
-    toast(r.yolo ? "全自动已开启：写操作不再等你确认" : "全自动已关闭：写操作恢复确认", r.yolo ? "info" : "info");
+    toast(r.yolo ? "全自动已开启：由 JEV 自动决定，不再打扰你" : "全自动已关闭：需要时会问你", "info");
   } catch (err) {
     fail(err);
   }

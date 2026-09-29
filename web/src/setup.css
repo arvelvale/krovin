@@ -44,10 +44,6 @@
 
 .setup-drawer.preview-wide { width: min(1100px, 100%); }
 .preview-frame { width: 100%; height: 62vh; min-height: 320px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #fff; }
-.composer-yolo { display: inline-flex; align-items: center; gap: 5px; flex: none; height: 30px; padding: 0 9px; border: 1px solid #ffffff30; border-radius: 9px; background: #ffffff0d; color: #b9bbc0; font: inherit; font-size: 11px; cursor: pointer; white-space: nowrap; }
-.composer-yolo:hover:not(:disabled) { border-color: #ffffff70; color: #fff; }
-.composer-yolo:disabled { opacity: .45; cursor: default; }
-.composer-yolo.on { color: #ffd9a0; background: #ffb24a26; border-color: #ffb24a99; }
 
 /* ---------- 会话改名 / 删除、确认卡说明 ---------- */
 .session-item { position: relative; cursor: pointer; }
@@ -66,3 +62,30 @@
 .confirm-raw[open] > summary { margin-bottom: 8px; }
 .confirm-scores .mini-score { grid-template-columns: 9.5em 1fr 3em; }
 .confirm-scores .mini-score > span:first-child { white-space: nowrap; }
+
+/* ---------- 输入框下的工作空间 / 权限选择器 ---------- */
+.composer-pickers { display: flex; align-items: center; gap: 6px; padding: 8px 6px 0; }
+.pk-wrap { position: relative; }
+.pk-btn { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 10px; border: 0; border-radius: 9px; background: transparent; color: var(--text-2); font: inherit; font-size: 13px; cursor: pointer; max-width: 260px; }
+.pk-btn:hover:not(:disabled), .pk-btn[aria-expanded="true"] { background: #ffffff14; color: #fff; }
+.pk-btn:disabled { opacity: .5; cursor: default; }
+.pk-btn.danger { color: #ffd9a0; }
+.pk-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.pk-chev { flex: none; opacity: .7; }
+.pk-menu { display: none; position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 30; width: 300px; padding: 8px; border-radius: 16px; border: 1px solid #ffffff2b; background: #1b1c20f2; backdrop-filter: blur(16px); box-shadow: 0 18px 40px #000a; }
+.pk-menu.open { display: block; }
+.pk-menu-perm { width: 340px; }
+.pk-search-wrap { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px; border-radius: 11px; background: #ffffff12; color: var(--text-3); }
+.pk-search { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: #fff; font: inherit; font-size: 13.5px; }
+.pk-list { max-height: 220px; overflow-y: auto; margin: 6px 0; }
+.pk-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; border: 0; border-radius: 10px; background: transparent; color: #ececec; font: inherit; font-size: 13.5px; text-align: left; cursor: pointer; }
+.pk-item:hover { background: #ffffff14; }
+.pk-item.on { background: #ffffff0d; }
+.pk-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pk-perm .pk-item-name { white-space: normal; display: grid; gap: 2px; }
+.pk-perm .pk-desc { font-size: 12px; color: var(--text-3); line-height: 1.5; }
+.pk-perm.danger.on b { color: #ffd9a0; }
+.pk-check { flex: none; color: #fff; }
+.pk-sep { height: 1px; margin: 4px 6px; background: #ffffff1f; }
+.pk-empty { padding: 12px; font-size: 12.5px; color: var(--text-3); }
+.pk-note { padding: 6px 12px 4px; font-size: 11.5px; line-height: 1.5; color: var(--text-3); }

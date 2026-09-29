@@ -414,6 +414,17 @@ class App:
     def active_path(self, kind: str) -> Path:
         return self.workspaces.path(self._active_id(kind), kind)
 
+    def workspace_label(self, path: Path) -> str:
+        """一个会话固定用的工作区路径 → 面板里显示的名字（找不到就用目录名）。"""
+        try:
+            want = path.resolve()
+            for item in self.workspaces.list("workspace"):
+                if self.workspaces.path(item["id"], "workspace").resolve() == want:
+                    return item["name"]
+        except (WorkspaceError, OSError):
+            pass
+        return path.name
+
     def active_name(self, kind: str) -> str:
         return self.workspaces.get(self._active_id(kind), kind)["name"]
 
@@ -712,6 +723,7 @@ def make_handler(app: App):
                     "use_jev": s.use_jev if s else None,
                     "tier": (s.agent.force_tier or "auto") if s else None,
                     "yolo": bool(s.agent.yolo) if s else False,
+                    "workspace": app.workspace_label(s.agent.cfg.workspace) if s else None,
                     "working": s.agent.working.to_dict() if s else None,
                     "pending": [p["public"] for p in s.pending.values()] if s else [],
                 })
