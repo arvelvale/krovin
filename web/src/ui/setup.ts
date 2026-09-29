@@ -505,7 +505,8 @@ export function createSetup(): Setup {
       const found = await api.discoverLinear(lin.key.trim());
       lin.found = found;
       if (!found.teams.some((t) => t.key === lin.team)) lin.team = found.teams[0]?.key ?? "";
-      lin.project = "";
+      lin.project = found.projects.some((p) => p.name === integ?.linear.project_name && p.teams.includes(lin.team))
+        ? integ!.linear.project_name : "";
       toast(`已连上 Linear：${found.user}`);
     } catch (e) {
       toast(errText(e), "error");
@@ -539,7 +540,7 @@ export function createSetup(): Setup {
         l.demo ? h("span", { class: "tag" }, "演示项目") : h("span", { class: "tag accent" }, `你的 · ${l.team_key}${l.project_name ? " / " + l.project_name : ""}`)),
       h("p", { class: "muted small note" }, l.demo
         ? `现在连的是演示用的 Linear 项目（团队 ${l.team_key}${l.project_name ? "，项目「" + l.project_name + "」" : ""}）。填你自己的 Personal API Key，agent 就读写你自己的 issue。`
-        : "agent 现在读写的是你的 Linear。Key 存在节点上，页面不会再显示。"),
+        : `已保存你的 Linear Key。当前范围：${l.project_name ? "项目「" + l.project_name + "」" : "整个团队 " + l.team_key + "（包含演示项目及其它项目）"}。设置在新对话生效，已有对话保留原配置。Key 不会回显。`),
       field("Personal API Key", inp(() => lin.key, (v) => (lin.key = v), { type: "password", placeholder: l.demo ? "lin_api_…" : "已设置，留空保持不变" }),
         "Linear → Settings → Security & access → Personal API keys 里创建；只需要读写 issue 的权限。"),
       h("div", { class: "form-actions" },

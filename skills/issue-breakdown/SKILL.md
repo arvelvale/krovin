@@ -8,6 +8,7 @@ model: auto
 allowed-tools:
   - linear_get_issue
   - linear_list_issues
+  - linear_list_projects
   - linear_create_issue
 triggers:
   - 把 DAY-5 拆一下
@@ -24,7 +25,7 @@ tags: [dev-flow, linear]
 用户要把一个 issue 或需求拆成更小的、可以分别完成和验收的子任务。
 
 ## 步骤
-1. 用 `linear_get_issue` 读原 issue（描述、已有子任务、评论）。用户给的是一段文字就以它为准。
+1. 用户给项目名时，先用 `linear_list_projects` 核对项目，再用 `linear_list_issues(project_name=准确项目名)` 查询，确认 issue 的所属项目与目标一致。找不到或范围不允许时如实说明，绝不能换成演示 issue。随后用 `linear_get_issue` 读原 issue（描述、已有子任务、评论）。用户给的是一段需求文字就以它为准。
 2. 用 `search_text` / `read_file` 看相关代码，确认拆分贴合实际代码结构；读工作区的 `AGENTS.md` 了解约定。
 3. 用 `update_plan` 写下目标和拆解思路。
 4. 拆成 2–6 个子任务。每个子任务要满足：

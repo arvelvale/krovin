@@ -51,6 +51,8 @@ class LinearClient:
                 raise ToolError(f"找不到团队 {self.team_key}")
             if self.project_name and not projects:
                 raise ToolError(f"找不到项目「{self.project_name}」")
+            if self.project_name and len(projects) != 1:
+                raise ToolError(f"项目「{self.project_name}」存在重名，请在 Linear 中使用唯一项目名")
             self._team, self._project_id = teams[0], (projects[0]["id"] if self.project_name else "")
 
     @property
@@ -66,7 +68,7 @@ class LinearClient:
     def issue(self, identifier: str) -> dict:
         d = self.gql(
             "query($id:String!){issue(id:$id){id identifier title description url priority "
-            "state{name} project{id} team{id} labels{nodes{name}} assignee{name} parent{identifier title} "
+            "state{name} project{id name} team{id} labels{nodes{name}} assignee{name} parent{identifier title} "
             "children{nodes{identifier title state{name}}} comments(first:10){nodes{body createdAt user{name}}}}}",
             {"id": identifier},
         )
@@ -102,25 +104,53 @@ def _client(ctx: ToolContext) -> LinearClient:
 
 def _fmt_issue_line(i: dict) -> str:
     parent = f"  ↳ 父任务 {i['parent']['identifier']}" if i.get("parent") else ""
-    return f"{i['identifier']} [{i['state']['name']}] P{i.get('priority', 0)} {i['title']}{parent}"
+    project = (i.get("project") or {}).get("name") or "无项目"
+    return f"{i['identifier']} [项目：{project}] [{i['state']['name']}] P{i.get('priority', 0)} {i['title']}{parent}"
+
+
+def linear_list_projects(args: dict, ctx: ToolContext) -> str:
+    lc = _client(ctx)
+    if lc.project_name:
+        lc._resolve()
+        return f"当前只允许访问项目：{lc.project_name}（团队 {lc.team_key}）"
+    projects = []
+    cursor = None
+    while True:
+        d = lc.gql("query($id:String!,$after:String){team(id:$id){projects(first:100,after:$after)"
+                   "{nodes{name} pageInfo{hasNextPage endCursor}}}}",
+                   {"id": lc.team["id"], "after": cursor})["team"]["projects"]
+        projects.extend(p["name"] for p in d["nodes"])
+        if not d["pageInfo"]["hasNextPage"]:
+            break
+        cursor = d["pageInfo"]["endCursor"]
+    return f"团队 {lc.team_key} 的项目：\n" + ("\n".join(projects) or "（无项目）")
 
 
 def linear_list_issues(args: dict, ctx: ToolContext) -> str:
     lc = _client(ctx)
     flt: dict = lc.scope_filter()
+    project = str(arg(args, "project_name", "") or "").strip()
+    if project:
+        if lc.project_name and project.casefold() != lc.project_name.casefold():
+            raise ToolError(f"当前仅允许访问项目「{lc.project_name}」，不能查询「{project}」。请在集成设置切换项目并新建对话")
+        if not lc.project_name:
+            flt["project"] = {"name": {"eqIgnoreCase": project}}
     state = arg(args, "state")
     if state:
         flt["state"] = {"name": {"eqIgnoreCase": state}}
     n = min(int(arg(args, "limit", 30)), 100)
     d = lc.gql("query($f:IssueFilter,$n:Int){issues(filter:$f,first:$n,orderBy:updatedAt)"
-               "{nodes{identifier title priority state{name} parent{identifier}}}}", {"f": flt, "n": n})
+               "{nodes{identifier title priority project{name} state{name} parent{identifier}}}}", {"f": flt, "n": n})
     nodes = d["issues"]["nodes"]
-    return "\n".join(_fmt_issue_line(i) for i in nodes) or "范围内没有 issue"
+    scope = project or lc.project_name or f"整个团队 {lc.team_key}（包含多个项目，请核对每条 issue 的项目）"
+    return f"查询范围：{scope}\n" + ("\n".join(_fmt_issue_line(i) for i in nodes)
+        or "没有匹配的 issue；请用 linear_list_projects 核对项目名，不要用其它项目的 issue 替代。")
 
 
 def linear_get_issue(args: dict, ctx: ToolContext) -> str:
     i = _client(ctx).issue(arg(args, "identifier", required=True))
     parts = [f"{i['identifier']} {i['title']}", f"状态：{i['state']['name']}  优先级：P{i.get('priority', 0)}  链接：{i['url']}"]
+    parts.append("所属项目：" + ((i.get("project") or {}).get("name") or "无项目"))
     if i.get("labels", {}).get("nodes"):
         parts.append("标签：" + "、".join(l["name"] for l in i["labels"]["nodes"]))
     if i.get("parent"):
@@ -176,8 +206,11 @@ def linear_update_issue(args: dict, ctx: ToolContext) -> str:
 
 
 TOOLS = [
+    Tool("linear_list_projects", "列出当前允许访问的 Linear 项目名称。用户指定项目时先查询核对，不要猜 issue 编号。",
+         params({}), Permission.READ, linear_list_projects),
     Tool("linear_list_issues", "列出当前范围（项目或团队）里的 Linear issue（编号、状态、优先级、标题）。",
          params({"state": {"type": "string", "description": "按状态名过滤，如 Todo / In Progress / Done"},
+                 "project_name": {"type": "string", "description": "用户指定项目时必填：使用 linear_list_projects 返回的准确名称，仅在已配置范围内筛选"},
                  "limit": {"type": "integer", "description": "默认 30"}}),
          Permission.READ, linear_list_issues),
     Tool("linear_get_issue", "读取一个 Linear issue 的详情（描述、子任务、评论）。",
