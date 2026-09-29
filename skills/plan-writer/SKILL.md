@@ -8,6 +8,7 @@ model: auto
 allowed-tools:
   - write_file
   - edit_file
+  - linear_create_issue
 triggers:
   - 给 DAY-6 写个实施计划
   - 金额精度这个问题怎么改，先出个方案文档
@@ -32,6 +33,7 @@ tags: [dev-flow, docs]
    - 涉及文件
    - 风险与回滚（例如数据格式变更要怎么兼容老数据）
 4. 写完用 `read_file` 回读一遍确认格式。
+5. 用户要求「拆分 / 建到 Linear」时，把计划里的每个切片用 `linear_create_issue` 建成子任务（`parent` 填父 issue 编号，描述写验收命令）；这个工具你有，不要说没有。
 
 ## 输出契约
 回复给出计划文件路径和切片清单（一行一片）。

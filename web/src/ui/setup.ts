@@ -117,10 +117,11 @@ export function createSetup(): Setup {
     return h("label", { class: "field" }, h("span", { class: "field-label" }, label), input,
       hint && h("span", { class: "field-hint" }, hint));
   }
-  function inp(get: () => string, set: (v: string) => void, attrs: Record<string, string> = {}): HTMLInputElement {
+  function inp(get: () => string, set: (v: string) => void, attrs: Record<string, string> = {}, onEnter?: () => void): HTMLInputElement {
     const node = h("input", { class: "text-input", attrs: { spellcheck: "false", autocomplete: "off", ...attrs } });
     node.value = get();
     node.addEventListener("input", () => set(node.value));
+    if (onEnter) node.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) onEnter(); });
     return node;
   }
   const spin = (on: boolean, node: Parameters<typeof icon>[0], size = 14) => icon(on ? LoaderCircle : node, size, on ? "spin" : "");
@@ -168,12 +169,13 @@ export function createSetup(): Setup {
       ? [["clone", "从 git 仓库同步"], ["upload", "上传文件夹 / zip"]]
       : [["upload", "导入本地文件夹"], ["clone", "克隆 git 仓库"], ["empty", "新建空白"]];
     if (!modes.some(([m]) => m === addMode)) addMode = modes[0][0];
-    const submit = kind === "vault" ? "接入" : addMode === "empty" ? "创建" : addMode === "clone" ? "克隆" : "";
+    const submit = addMode === "clone" ? "克隆并使用" : "创建并使用";
     return h("div", { class: "add-box" },
       h("div", { class: "seg small" }, modes.map(([m, label]) =>
         h("button", { class: ["seg-btn", addMode === m && "on"], onclick: () => { addMode = m; render(); } }, label))),
-      field("名字", inp(() => form.name, (v) => (form.name = v), { placeholder: kind === "vault" ? "比如 我的笔记" : "比如 my-project", maxlength: "40" }),
-        addMode === "upload" ? "留空则用文件夹名" : undefined),
+      field("名字", inp(() => form.name, (v) => (form.name = v), { placeholder: kind === "vault" ? "比如 我的笔记" : "比如 my-project", maxlength: "40" },
+        addMode !== "upload" ? () => { if (!busy) void submitAdd(kind); } : undefined),
+        addMode === "upload" ? "留空则用文件夹名" : "回车即可创建"),
       addMode === "clone" && field("仓库地址", inp(() => form.url, (v) => (form.url = v), { placeholder: "https://github.com/owner/repo.git", inputmode: "url" }),
         "只支持 https。私有仓库先到「集成」里填访问令牌。"),
       addMode === "clone" && field("分支（可选）", inp(() => form.branch, (v) => (form.branch = v), { placeholder: "默认分支", maxlength: "80" })),
@@ -213,17 +215,30 @@ export function createSetup(): Setup {
     });
   }
 
+  /** 新建 / 克隆 / 导入完成：直接设为当前使用（创建它就是为了用），不再弹确认框 */
   function finishAdd(l: WsListing, kind: Kind) {
     const made = l.created;
     form.name = form.url = form.branch = "";
     addOpen = false;
-    applied(l, `已添加「${made?.name ?? ""}」`);
-    if (made && autoUse) {
-      autoUse = false;
-      void useWorkspace(made.id, made.name);
-      return;
-    }
-    if (made && window.confirm(`把「${made.name}」设为当前${kind === "vault" ? "笔记库" : "工作区"}吗？新对话会用它。`)) void activate(made);
+    listing = l;
+    if (!made) return render();
+    const fromPicker = autoUse;   // 从输入框下的选择器进来的：用完关掉抽屉，回到对话
+    autoUse = false;
+    void (async () => {
+      try {
+        if (fromPicker && kind === "workspace") {
+          await useWorkspace(made.id, made.name);   // 设为当前 + 已有对话时新开一个 + 提示
+          update((s) => (s.drawer = null));
+          return;
+        }
+        listing = await api.activateWorkspace(made.id);
+        toast(`已创建「${made.name}」并设为当前${kind === "vault" ? "笔记库" : "工作空间"}，新对话会用它`);
+        void loadStatus();
+      } catch (e) {
+        toast(errText(e), "error");
+      }
+      render();
+    })();
   }
 
   async function uploadZip(file: File, kind: Kind) {
@@ -609,6 +624,7 @@ export function createSetup(): Setup {
     el,
     request(t, w = false, opts) {
       pending = { tab: t, wizard: w, addMode: opts?.addMode };
+      autoUse = !!opts?.addMode;  // 输入框下的「新建工作空间」：建完直接用并回到对话
       update((s) => (s.drawer = "setup"));
     },
     pickFolder() {

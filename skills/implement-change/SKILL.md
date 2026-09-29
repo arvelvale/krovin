@@ -10,6 +10,7 @@ allowed-tools:
   - edit_file
   - run_command
   - run_in_sandbox
+  - linear_update_issue
   - git_branch
   - git_commit
 scripts:
@@ -41,6 +42,7 @@ tags: [dev-flow, code]
 7. 测试失败：读报错、定位、修复；同一处失败三次仍修不好就停下，如实报告。
 8. 每次 `git_commit` 之前，先用 `git_status` 和 `git_diff` 确认只有预期文件被改动（`git_commit` 会一步完成暂存和提交，所以看工作区改动即可）；出现意外删除或无关文件修改就停下报告。
 9. 测试全绿、改动范围确认无误就提交并收尾，不要再做额外的手工验证。
+10. 用户提到了 issue 编号，或要求「同步状态 / 更新 Linear」时：提交后用 `linear_update_issue` 把该 issue 改为 Done，`comment` 写一句做了什么和提交哈希。你有这个工具，不要说没有；报「找不到」就如实告诉用户 Linear 还没接入自己的团队。
 
 ## 输出契约
 回复包含：分支名、提交列表（短哈希 + 说明）、测试结果（通过数/失败数）、没完成的事。

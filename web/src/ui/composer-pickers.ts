@@ -89,7 +89,6 @@ export function createComposerPickers(): { el: HTMLElement; sync: () => void } {
     close();
     if (it.id === activeId && !state.current) return;
     if (state.current && it.name === wsName()) return;
-    if (state.current && !window.confirm(`在新对话里使用「${it.name}」？当前对话保持不变。`)) return;
     await useWorkspace(it.id, it.name);
   }
 
