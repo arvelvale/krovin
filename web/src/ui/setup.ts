@@ -316,6 +316,7 @@ export function createSetup(): Setup {
   /** 预览入口：当前打开的是 html 就预览它，否则找根目录的 index.html */
   function previewTarget(b: Browse): string | null {
     if (b.item.kind !== "workspace") return null;
+    if (!b.file && !b.path && b.entries?.some(e => e.name === "package.json")) return "/";
     if (b.file && /\.html?$/i.test(b.file.path)) return b.file.path;
     if (!b.file && !b.path && b.entries?.some((e) => e.type === "file" && e.name === "index.html")) return "index.html";
     return null;
@@ -323,8 +324,8 @@ export function createSetup(): Setup {
 
   async function openPreview(b: Browse, path: string) {
     await run("preview", async () => {
-      const { url } = await api.previewWorkspace(b.item.id);
-      b.preview = { url: url + path.split("/").map(encodeURIComponent).join("/"), path };
+      const { url } = await api.startPreview(b.item.id, path);
+      b.preview = { url, path };
     });
   }
 

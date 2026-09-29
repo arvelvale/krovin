@@ -106,6 +106,9 @@ export const api = {
     if (!r.ok) throw new ApiError(r.status, "读取文件失败");
     return r.blob();
   },
+  startPreview: (id: string, path = "/") =>
+    request<{ url: string; kind: string; expires_in: number }>("POST", `/api/workspaces/${id}/live-preview`, { path }),
+  stopPreview: (id: string) => request<{ ok: boolean }>("DELETE", `/api/workspaces/${id}/live-preview`, {}),
   previewWorkspace: (id: string) =>
     request<{ url: string; expires_in: number }>("POST", `/api/workspaces/${id}/preview`, {}),
   wsZipUrl: (id: string) => `/api/workspaces/${id}/zip`,

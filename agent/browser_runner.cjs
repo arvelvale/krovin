@@ -14,7 +14,9 @@ const stop = () => { if (child) { try { process.kill(-child.pid, 'SIGKILL'); } c
 process.on('exit', stop);
 process.on('SIGTERM', () => { stop(); process.exit(143); });
 async function main() {
-  if (cfg.command) {
+  if (cfg.existing) {
+    // Reuse managed preview; this check does not own its lifetime.
+  } else if (cfg.command) {
     child = spawn('sh', ['-lc', cfg.command], {cwd: root, detached: true, stdio: ['ignore', 'pipe', 'pipe']});
     let log = '';
     for (const stream of [child.stdout, child.stderr]) stream.on('data', b => { log = (log + b).slice(-4000); report.server_log = log; });
@@ -35,7 +37,7 @@ async function main() {
   let ready = false;
   for (let i = 0; i < 80; i++) {
     if (child && child.exitCode !== null) throw Error('开发服务已退出：' + child.exitCode);
-    try { await fetch(origin + cfg.path, {signal: AbortSignal.timeout(500)}); ready = true; break; } catch {}
+    try { const r = await fetch(origin + cfg.path, {signal: AbortSignal.timeout(500)}); if (r.ok) { ready = true; break; } report.http_status = r.status; } catch {}
     await pause(250);
   }
   if (!ready) throw Error('开发服务在 20 秒内没有响应，请检查 command 和 port');
@@ -76,7 +78,8 @@ async function main() {
 main().catch(e => {report.error = e.message;}).finally(async () => {
   if (browser) await browser.close().catch(() => {});
   stop(); if (server) server.close();
-  fs.writeFileSync(cfg.report, JSON.stringify(report, null, 2));
+  try { fs.writeFileSync(cfg.report, JSON.stringify(report, null, 2)); }
+  catch (e) { report.report_error = e.message; }
   console.log(JSON.stringify(report));
   process.exitCode = report.error ? 1 : 0;
 });

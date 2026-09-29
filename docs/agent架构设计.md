@@ -390,3 +390,12 @@ JEV 超时/429 用尽/无 key → DecisionClient 抛 `DecisionUnavailable` → �
 - 节点真实模型验收：会话 `s-20260929-130401-995a`，`write_file` 和 `read_file` 均成功，门控 reason 为 Bypass，auto=true，JEV 分数为空。证据：节点 `var/eval/bypass-smoke.json`。
 - 门控测试覆盖未命中技能时的 edit_file、run_in_sandbox、linear_create_issue 自动放行，以及关闭后恢复拒绝；HTTP 测试覆盖保存、恢复、切回全自动。浏览器实测弹窗在 1360×900 视口居中，取消不修改模式，确认切换成功；本地截图 `var/bypass-confirm.png`。
 - 一并修复停止接口未读请求体导致 Windows 客户端连接中止的问题，对应停止回归已通过。没有对用户的 Linear 项目实际创建 issue。
+
+### 2026-09-29：React 在线预览与白屏诊断
+
+- 实际失败记录：`.krovin-browser` 是普通文件，创建同名目录报 `ENOTDIR`，不是 Chromium 被沙箱禁止。截图工具遇到冲突使用独立目录，非零退出码记为工具失败。
+- `start_preview`：独立 OpenShell 工作区副本；Vite 项目自动安装依赖、进行不落盘构建检查，再启动 Vite 服务；静态 HTML 使用受限文件服务。通过节点回环端口转发与 `/live-preview/<token>/` 代理访问，不新增公网端口。最多 4 个预览，2 小时 TTL，支持手动停止和重新启动，删除工作区时清理对应服务。
+- 输入框下方新增「在线预览」，产物卡与工作区预览使用同一入口。浏览器检查可传 `preview_url` 复用服务，结束后不关闭预览。修改源码后重新启动以同步副本；当前不是 HMR 编辑环境，不支持 Next/SSR 或任意后端接口代理。
+- 预览页面保持不透明源 iframe，不能使用面板的 cookie/存储；提供临时存储兼容 localStorage，刷新清空。构建失败显示具体错误；iframe 运行时错误通知父页面，避免只留下白屏。
+- 节点验收：真实 React/Vite fixture 的按钮 Count 0 → 1，HTTP 200、浏览器截图成功，保留冲突文件。真实模型会话 `s-20260929-141353-8196` 调用 `start_preview`、`browser_check` 均成功，确认番茄钟文字、开始 → 暂停；节点证据 `var/eval/live-preview-model.json`。
+- 用户番茄钟源码另有错误：入口导入路径重复 src、未导入 ReactDOM、App/组件返回普通对象、相互同步状态循环。已备份并修复该节点工作区的 main/App，使 React 页面可渲染；本机 Edge 通过面板入口验收开始/暂停/重置、添加/删除任务并截图 `var/pomodoro-live-preview.png`。这不代表番茄钟所有原始需求已完成；25 分钟完整周期与长期持久化未验收。该用户工作区不属于平台源码仓库。

@@ -1,9 +1,10 @@
-import { Check, ChevronDown, Folder, FolderOpen, ImagePlus, Plus, Search, ShieldCheck, Trash2, Zap } from "lucide";
+import { Check, ChevronDown, Folder, FolderOpen, ImagePlus, Plus, Play, Search, ShieldCheck, Trash2, Zap } from "lucide";
 import { ApiError, api } from "../api";
 import { loadStatus, setYolo, state, toast, update, useWorkspace } from "../store";
 import type { WsItem } from "../types";
 import { h, icon } from "./dom";
 import { setup } from "./setup";
+import { artifactView } from "./artifact";
 
 /**
  * 输入框下面那一排：工作空间选择器 + 权限选择器（和 Codex 一样放在对话框下面）。
@@ -27,6 +28,10 @@ export function createComposerPickers(): { el: HTMLElement; sync: () => void } {
   const permMenu = h("div", { class: "pk-menu pk-menu-perm", attrs: { role: "listbox" } });
   const el = h("div", { class: "composer-pickers" },
     imageBtn,
+    h("button", {class:"pk-btn", attrs:{type:"button",title:"在线预览当前项目","aria-label":"在线预览当前项目"}, onclick:() => {
+      if (state.current?.workspaceId) artifactView.request(state.current.workspaceId,"index.html","preview");
+      else toast("先打开一个会话，再预览对应项目");
+    }}, icon(Play,15), h("span",{class:"pk-label"},"在线预览")),
     h("div", { class: "pk-wrap" }, wsBtn, wsMenu), h("div", { class: "pk-wrap" }, permBtn, permMenu));
   imageBtn.addEventListener("click", () => window.dispatchEvent(new Event("spark:add-image")));
 

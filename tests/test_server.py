@@ -467,3 +467,15 @@ def test_bypass_http_persistence_and_switch(running):
     assert resumed.agent.bypass
     body = call(port, "PATCH", f"/api/sessions/{sid}", {"bypass": False, "yolo": True}, cookie=cookie)[1]
     assert not body["bypass"] and body["yolo"]
+
+def test_live_preview_requires_token_and_blocks_hidden_files(running, monkeypatch):
+    from types import SimpleNamespace
+    import agent.server as server
+    app, port = running
+    manager = SimpleNamespace(resolve=lambda token: {'port':1} if token == 'scoped' else None)
+    monkeypatch.setattr(server, 'get_previews', lambda:manager)
+    assert call(port,'GET','/live-preview/missing/')[0] == 410
+    assert call(port,'GET','/live-preview/scoped/.env')[0] == 403
+    assert call(port,'GET','/live-preview/scoped/%2e%2e/.env')[0] == 403
+    assert call(port,'GET','/live-preview/scoped/@fs/etc/passwd')[0] == 403
+    assert call(port,'GET','/live-preview/scoped/')[0] == 502

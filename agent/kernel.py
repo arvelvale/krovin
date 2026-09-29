@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import re
 import time
 import uuid
@@ -298,6 +299,8 @@ class Agent:
             out, ok = f"[失败] {exc}", False
         except Exception as exc:  # 工具实现的 bug 也不能打断整轮
             out, ok = f"[失败] 工具内部错误 {type(exc).__name__}: {exc}", False
+        if ok and tool.name == "start_preview":
+            self.trace.emit("preview.ready", json.loads(out))
         out, cut = truncate(out, tool.max_chars or self.cfg.tool_result_chars)
         self.trace.emit("tool.call", {"tool": tool.name, "args": call.arguments, "ok": ok,
                                       "result_chars": len(out), "truncated": cut},
@@ -343,7 +346,7 @@ class Agent:
         mem = self.memory.select(text, self.working.goal, "local" if route.endpoint.is_private else "cloud")
 
         # 通用沙箱能力不依赖技能是否命中，执行时仍经过 JEV / 人工确认门控。
-        allowed_write: set[str] = {"run_in_sandbox", "browser_check"}
+        allowed_write: set[str] = {"run_in_sandbox", "browser_check", "start_preview"}
         for s in sel.skills:
             allowed_write.update(s.allowed_tools)
         has_scripts = any(s.scripts for s in sel.skills)

@@ -79,6 +79,8 @@ from .tools.base import ToolError, safe_path
 from .tools.linear import LinearClient
 from .workspaces import WorkspaceError, WorkspaceStore
 from .sandbox import get_sandbox, SandboxError
+from .preview import get_previews
+import http.client
 
 COOKIE = "dgx_session"
 SESSION_ID = re.compile(r"^s-[\w-]{4,64}$")
@@ -588,7 +590,7 @@ class App:
             if expected_workspace is not None and expected_workspace != plan["delete_workspace"]:
                 raise RuntimeError("工作区关联已变化，请重新打开删除确认查看清理范围")
             hist = load_history(self.cfg.data_dir, sid)
-            used_sandbox = hist and any(e.get("data", {}).get("tool") == "run_in_sandbox"
+            used_sandbox = hist and any(e.get("data", {}).get("tool") in {"run_in_sandbox", "browser_check"}
                                        for e in hist["events"])
             if used_sandbox:
                 tag = sid[-8:].replace("-", "")
@@ -603,6 +605,7 @@ class App:
                 if plan["delete_workspace"]:
                     wid = plan["workspace_id"]
                     was_active = self._active_id("workspace") == wid
+                    get_previews().stop_workspace(self.workspaces.path(wid, "workspace"))
                     self.workspaces.delete(wid)
                     if was_active:
                         self.integrations.set_active("workspace", "demo")
@@ -750,6 +753,8 @@ def make_handler(app: App):
             url = urlparse(self.path)
             path = url.path
             try:
+                if path.startswith("/live-preview/"):
+                    return self._live_preview(method)
                 if path.startswith("/preview/"):
                     return self._preview(path, method)
                 if not path.startswith("/api/"):
@@ -1022,6 +1027,39 @@ def make_handler(app: App):
             app.reload_models()
             return self._json(app.models.public(cfg))
 
+        def _live_preview(self, method: str) -> None:
+            parts = urlparse(self.path).path.split("/")
+            entry = get_previews().resolve(parts[2] if len(parts) > 2 else "")
+            if entry is None:
+                return self._send(410, "预览已关闭或过期，请重新启动预览。".encode(), "text/plain; charset=utf-8")
+            if method not in ("GET", "HEAD"):
+                return self._error(405, "当前预览仅支持页面与静态资源访问")
+            route = unquote(urlparse(self.path).path)
+            if any(x.startswith('.') and x != '.vite' for x in route.split('/')) or "/@fs/" in route or "\\" in route:
+                return self._error(403, "不允许访问这个路径")
+            conn = http.client.HTTPConnection('127.0.0.1', entry['port'], timeout=20)
+            try:
+                conn.request('GET', self.path, headers={'Accept-Encoding':'identity'})
+                resp = conn.getresponse()
+                body = resp.read(20 * 1024 * 1024 + 1)
+                if len(body) > 20 * 1024 * 1024:
+                    return self._error(413, "预览资源过大")
+                ctype = resp.getheader('Content-Type') or 'application/octet-stream'
+                if 'text/html' in ctype:
+                    # Opaque-origin iframe has no panel cookies/storage. Provide temporary storage
+                    # so localStorage-based demos can run without granting same-origin privileges.
+                    shim = b"<script>for(const k of ['localStorage','sessionStorage']){try{window[k].getItem('_')}catch{const d={};Object.defineProperty(window,k,{value:{getItem:k=>d[k]??null,setItem:(k,v)=>{d[k]=String(v)},removeItem:k=>{delete d[k]},clear:()=>{for(const k in d)delete d[k]},key:i=>Object.keys(d)[i]??null,get length(){return Object.keys(d).length}}})}}</script>"
+                    shim += b"<script>addEventListener('error',e=>{const m=e.message||('Resource failed: '+(e.target.src||e.target.href||''));parent.postMessage({type:'krovin-preview-error',message:m},'*')},true);addEventListener('unhandledrejection',e=>parent.postMessage({type:'krovin-preview-error',message:String(e.reason)},'*'))</script>"
+                    at = body.lower().find(b'<head>')
+                    body = body[:at+6] + shim + body[at+6:] if at >= 0 else shim + body
+                self._send(resp.status, body, ctype, {'Cache-Control':'no-store',
+                    'Content-Security-Policy':preview_csp(self.headers.get('Host') or ''),
+                    'Access-Control-Allow-Origin':'*', 'Referrer-Policy':'no-referrer'})
+            except (OSError, http.client.HTTPException):
+                self._send(502, "预览服务已停止，请重新启动预览。".encode(), "text/plain; charset=utf-8")
+            finally:
+                conn.close()
+
         def _preview(self, path: str, method: str) -> None:
             if method not in ("GET", "HEAD"):
                 return self._error(405, "不支持")
@@ -1072,6 +1110,8 @@ def make_handler(app: App):
                     kind = ws.get(wid)["kind"]
                     if wid == app._active_id(kind):
                         app.integrations.set_active(kind, "demo")
+                    if kind == "workspace":
+                        get_previews().stop_workspace(ws.path(wid, "workspace"))
                     ws.delete(wid)
                     return self._json(self._ws_listing())
                 if action == "file" and method == "PUT":
@@ -1086,6 +1126,19 @@ def make_handler(app: App):
                     e = ws.get(wid)
                     app.integrations.set_active(e["kind"], wid)
                     return self._json(self._ws_listing())
+                if action == "live-preview" and method == "POST":
+                    data = self._json_body()
+                    if data is None: return
+                    if ws.get(wid)["kind"] != "workspace":
+                        return self._error(400, "只有工作区能预览")
+                    try:
+                        return self._json(get_previews().start(ws.path(wid, "workspace"), str(data.get("path") or '/')))
+                    except ToolError as exc:
+                        return self._error(400, str(exc))
+                if action == "live-preview" and method == "DELETE":
+                    if self._json_body() is None: return
+                    get_previews().stop_workspace(ws.path(wid, "workspace"))
+                    return self._json({"ok": True})
                 if action == "preview" and method == "POST":
                     if ws.get(wid)["kind"] != "workspace":
                         return self._error(400, "只有工作区能预览")

@@ -10,6 +10,7 @@ from typing import Callable
 TRACE_VERSION = 1
 
 EVENT_TYPES = {
+    "preview.ready",
     "turn.start", "skill.select", "route.model", "route.escalate", "memory.recall",
     "llm.start", "llm.call", "tool.gate", "tool.call", "context.compress", "memory.write",
     "turn.end", "error",
