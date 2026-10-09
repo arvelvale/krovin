@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KROVIN — 让每一次「AI 替人动手」，都先给人看明白</title>
+<meta name="description" content="KROVIN：跑在 NVIDIA DGX Spark 上的开发流 Agent。JEV 决策层把技能选择、模型路由、工具门控与记忆精选都写进可度量的决策轨迹。DGX Spark Hackathon 参赛项目。">
+<meta property="og:title" content="KROVIN — a dev-flow agent on NVIDIA DGX Spark">
+<meta property="og:description" content="Every time an AI acts for you, you see it first. Skill selection, model routing and tool gating, all in a measurable decision trace.">
+<meta name="theme-color" content="#07040d">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<style>
+@font-face{font-family:"Inter";font-style:normal;font-weight:100 900;font-display:swap;src:url("fonts/inter.woff2") format("woff2")}
+@font-face{font-family:"Instrument Serif";font-style:italic;font-weight:400;font-display:swap;src:url("fonts/instrument-serif-italic.woff2") format("woff2")}
+:root{
+  --bg:#07040d; --panel:rgba(255,255,255,.045); --panel-2:rgba(255,255,255,.075);
+  --line:rgba(255,255,255,.12); --line-2:rgba(255,255,255,.22);
+  --text:#f6f3fb; --text-2:#cdc7d8; --text-3:#9d96ab;
+  --violet:#a98bff; --violet-deep:#5b3ba8; --run:#87c9a3; --warn:#e4ba7a; --bad:#e58a7e; --blue:#8fb4ff;
+  --sans:"Inter",system-ui,-apple-system,"PingFang SC","Microsoft YaHei UI","Noto Sans SC",sans-serif;
+  --serif:"Instrument Serif","Songti SC","SimSun",serif;
+  --mono:ui-monospace,"JetBrains Mono","Cascadia Mono",Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;scroll-padding-top:72px}
+body{background:var(--bg);color:var(--text);font:400 16px/1.75 var(--sans);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+/* MicroSlats：和面板同一语言的紫色竖条底纹，纯 CSS */
+body::before{content:"";position:fixed;inset:0;z-index:-2;pointer-events:none;
+  background:
+    linear-gradient(180deg,rgba(7,4,13,.15) 0%,rgba(7,4,13,.88) 62%,#07040d 100%),
+    repeating-linear-gradient(90deg,rgba(150,105,255,.20) 0 6px,transparent 6px 12px),
+    radial-gradient(90% 55% at 50% 100%,rgba(120,70,220,.5),transparent 70%)}
+body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:radial-gradient(70% 40% at 50% -10%,rgba(190,160,255,.18),transparent 70%)}
+a{color:inherit}
+.wrap{width:min(1120px,100% - 40px);margin-inline:auto}
+.zh,.en{display:none}
+html[lang^="zh"] .zh{display:inline}
+html[lang="en"] .en{display:inline}
+html[lang^="zh"] .zh.b,html[lang="en"] .en.b{display:block}
+h1,h2,h3{font-weight:700;letter-spacing:-.01em;text-wrap:balance}
+em.s{font-family:var(--serif);font-style:italic;font-weight:400;color:var(--text-2)}
+.kicker{font:500 11.5px/1 var(--sans);letter-spacing:.26em;text-transform:uppercase;color:var(--text-3);display:flex;align-items:center;gap:10px}
+.kicker i{width:6px;height:6px;border-radius:50%;background:var(--run);box-shadow:0 0 12px var(--run)}
+.glass{background:var(--panel);border:1px solid var(--line);border-radius:20px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+section{padding:96px 0 8px}
+.sec-head{max-width:720px;margin-bottom:36px}
+.sec-head h2{font-size:clamp(28px,4vw,42px);line-height:1.22;margin-top:14px}
+.sec-head p{color:var(--text-2);margin-top:14px}
+
+/* 导航 */
+nav{position:sticky;top:0;z-index:30;background:rgba(7,4,13,.62);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+nav .wrap{display:flex;align-items:center;gap:22px;height:58px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.02em;text-decoration:none}
+.brand img{width:26px;height:26px}
+.brand small{font-weight:400;color:var(--text-3);font-size:13px}
+nav .links{display:flex;gap:4px;margin-left:auto;overflow-x:auto;scrollbar-width:none}
+nav .links a{padding:6px 12px;border-radius:999px;text-decoration:none;color:var(--text-3);font-size:14px;white-space:nowrap;transition:.2s}
+nav .links a:hover{color:var(--text);background:var(--panel-2)}
+.pill{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line-2);border-radius:999px;padding:6px 14px;font-size:13.5px;text-decoration:none;color:var(--text);background:transparent;cursor:pointer;font-family:inherit;transition:.2s;white-space:nowrap}
+.pill:hover{background:var(--panel-2);border-color:var(--violet)}
+
+/* Hero */
+.hero{padding:76px 0 40px}
+.hero h1{font-size:clamp(34px,6.2vw,72px);line-height:1.12;margin:22px 0 0;max-width:15em}
+.hero p.lead{max-width:640px;color:var(--text-2);font-size:clamp(16px,1.6vw,19px);margin-top:24px}
+.cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:34px}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:12px 22px;border-radius:999px;font-weight:600;font-size:15px;text-decoration:none;border:1px solid var(--line-2);transition:.2s}
+.btn.primary{background:#f2eefb;color:#16101f;border-color:#f2eefb}
+.btn.primary:hover{background:#fff;box-shadow:0 0 36px rgba(190,160,255,.45)}
+.btn.ghost:hover{background:var(--panel-2);border-color:var(--violet)}
+.shot{margin-top:56px;padding:10px;border-radius:26px;transform:perspective(1600px) rotateX(3deg);transform-origin:50% 0;transition:transform .5s ease;box-shadow:0 40px 120px -30px rgba(120,70,220,.55)}
+.shot:hover{transform:perspective(1600px) rotateX(0)}
+.shot img{display:block;width:100%;height:auto;border-radius:18px}
+.shot figcaption{padding:12px 8px 4px;font-size:13px;color:var(--text-3)}
+
+/* 数据条 */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;margin-top:56px;background:var(--line);border:1px solid var(--line);border-radius:20px;overflow:hidden}
+.stat{background:rgba(10,6,18,.86);padding:26px 24px}
+.stat b{display:block;font:italic 400 clamp(34px,4.6vw,52px)/1 var(--serif);color:var(--text)}
+.stat .lbl{display:block;margin-top:8px;font-size:13.5px;color:var(--text-3)}
+
+/* 理念 */
+.idea{display:grid;grid-template-columns:1.618fr 1fr;gap:28px;align-items:stretch}
+.idea .big{padding:34px}
+.idea .big p{color:var(--text-2);margin-top:14px}
+.idea blockquote{font:italic 400 clamp(22px,2.6vw,30px)/1.5 var(--serif);color:var(--text);border-left:2px solid var(--run);padding-left:20px;margin-top:24px}
+.idea blockquote .src{display:block;margin-top:10px;font:400 12.5px var(--sans);color:var(--text-3);letter-spacing:.04em}
+.principles{display:grid;gap:14px}
+.principles .glass{padding:20px 22px}
+.principles h3{font-size:16px}
+.principles p{font-size:14px;color:var(--text-2);margin-top:6px}
+
+/* 流水线 */
+.pipe{display:grid;grid-template-columns:260px 1fr;gap:22px}
+.steps{display:grid;gap:6px;align-content:start}
+.steps button{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:12px 14px;border-radius:14px;border:1px solid transparent;background:transparent;color:var(--text-3);font:inherit;font-size:15px;cursor:pointer;transition:.2s}
+.steps button:hover{background:var(--panel)}
+.steps button.on{background:var(--panel-2);border-color:var(--line-2);color:var(--text)}
+.steps b{font:500 12px var(--mono);color:var(--text-3);width:22px}
+.steps button.on b{color:var(--run)}
+.stage{padding:28px;min-height:360px;display:flex;flex-direction:column;gap:18px}
+.stage h3{font-size:22px}
+.stage p{color:var(--text-2)}
+.bars{display:grid;gap:10px;margin-top:4px}
+.bar{display:grid;grid-template-columns:150px 1fr 44px;align-items:center;gap:12px;font-size:13.5px;color:var(--text-2)}
+.bar .t{height:8px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden;position:relative}
+.bar .t i{display:block;height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,#6a52c8,var(--violet));transition:width .7s cubic-bezier(.2,.8,.2,1)}
+.bar.rev .t i{background:linear-gradient(90deg,#8a5a52,var(--bad))}
+.bar.ok .t i{background:linear-gradient(90deg,#4f8f6c,var(--run))}
+.bar output{font:500 12.5px var(--mono);text-align:right;color:var(--text)}
+.note{font-size:12.5px;color:var(--text-3)}
+
+/* 模型 */
+.tiers{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.tier{padding:26px;display:flex;flex-direction:column;gap:10px;position:relative;overflow:hidden}
+.tier .tag{display:inline-flex;align-items:center;gap:6px;font-size:12px;border-radius:999px;padding:3px 11px;width:fit-content;border:1px solid var(--line-2);color:var(--text-2)}
+.tier .tag.priv{color:var(--run);border-color:rgba(135,201,163,.4)}
+.tier .tag.ext{color:var(--blue);border-color:rgba(143,180,255,.4)}
+.tier h3{font-size:19px;margin-top:6px}
+.tier .m{font:500 13px var(--mono);color:var(--violet)}
+.tier p{font-size:14.5px;color:var(--text-2)}
+.tier.main{border-color:rgba(169,139,255,.5);box-shadow:0 0 60px -20px rgba(169,139,255,.5)}
+
+/* 决策 */
+.jev{display:grid;grid-template-columns:repeat(5,1fr);gap:14px}
+.jev .glass{padding:20px 18px}
+.jev b{font:500 12px var(--mono);color:var(--violet)}
+.jev h3{font-size:16px;margin-top:10px}
+.jev p{font-size:13.5px;color:var(--text-2);margin-top:6px}
+.trace{margin-top:28px;padding:10px;border-radius:26px}
+.trace img{display:block;width:100%;border-radius:18px;height:auto}
+
+/* 守门 */
+.guard{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start}
+.confirm{padding:26px;border-color:rgba(228,186,122,.45);background:linear-gradient(180deg,rgba(228,186,122,.08),var(--panel))}
+.confirm h3{font-size:18px;color:var(--warn);display:flex;align-items:center;gap:10px}
+.confirm code{font:500 13px var(--mono);background:rgba(255,255,255,.08);padding:2px 8px;border-radius:6px}
+.confirm .row{margin-top:16px}
+.confirm .acts{display:flex;gap:10px;margin-top:20px}
+.confirm button{padding:9px 20px;border-radius:12px;font:600 14px var(--sans);cursor:pointer;border:1px solid var(--line-2);background:transparent;color:var(--text);transition:.2s}
+.confirm button.go{background:#f2eefb;color:#16101f;border-color:#f2eefb}
+.confirm button:hover{filter:brightness(1.12)}
+.confirm .out{margin-top:18px;padding:12px 14px;border-radius:12px;background:rgba(255,255,255,.06);font-size:14px;color:var(--text-2);min-height:48px}
+.rules{display:grid;gap:12px}
+.rules .glass{padding:18px 20px}
+.rules h3{font-size:15.5px}
+.rules p{font-size:14px;color:var(--text-2);margin-top:4px}
+
+/* skills */
+.skills{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.skill{padding:18px 18px 16px;transition:.25s}
+.skill:hover{transform:translateY(-3px);border-color:rgba(169,139,255,.55);background:var(--panel-2)}
+.skill code{font:500 13px var(--mono);color:var(--violet)}
+.skill p{font-size:13.5px;color:var(--text-2);margin-top:8px;line-height:1.65}
+.skill .ro{float:right;font-size:11px;color:var(--run);border:1px solid rgba(135,201,163,.4);border-radius:99px;padding:0 8px;line-height:18px}
+
+/* demo */
+.demo{padding:10px;border-radius:26px}
+.demo video{display:block;width:100%;border-radius:18px;background:#000}
+
+/* 诚实说明 */
+.honest{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.honest .glass{padding:20px 22px}
+.honest h3{font-size:15.5px;display:flex;gap:10px;align-items:baseline}
+.honest h3 i{font:500 12px var(--mono);color:var(--warn);font-style:normal}
+.honest p{font-size:14px;color:var(--text-2);margin-top:6px}
+
+footer{margin-top:96px;border-top:1px solid var(--line);padding:36px 0 56px;color:var(--text-3);font-size:13.5px}
+footer .wrap{display:flex;flex-wrap:wrap;gap:12px 28px;justify-content:space-between}
+footer a{color:var(--text-2);text-decoration:none;border-bottom:1px solid var(--line-2)}
+footer a:hover{color:var(--text)}
+footer .back{width:100%;color:var(--text-3);border:0}
+
+.reveal{opacity:0;transform:translateY(16px);transition:opacity .7s ease,transform .7s ease}
+.reveal.in{opacity:1;transform:none}
+@media (max-width:900px){
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .idea,.pipe,.guard{grid-template-columns:1fr}
+  .tiers,.honest{grid-template-columns:1fr}
+  .jev{grid-template-columns:1fr 1fr}
+  .skills{grid-template-columns:1fr 1fr}
+  .steps{grid-auto-flow:column;grid-auto-columns:max-content;overflow-x:auto;scrollbar-width:none}
+  nav .links{display:none}
+  nav .wrap{justify-content:space-between}
+  .shot{transform:none}
+  .bar{grid-template-columns:110px 1fr 40px}
+}
+@media (max-width:520px){.jev,.skills{grid-template-columns:1fr}.hero{padding-top:48px}.brand small{display:none}}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  .reveal{opacity:1;transform:none;transition:none}
+  .shot{transform:none;transition:none}
+  .bar .t i{transition:none}
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="favicon.svg" alt="" width="26" height="26">KROVIN <small><span class="zh">开发流 Agent</span><span class="en">Dev-flow agent</span></small></a>
+    <div class="links">
+      <a href="#idea"><span class="zh">理念</span><span class="en">Idea</span></a>
+      <a href="#pipeline"><span class="zh">流水线</span><span class="en">Pipeline</span></a>
+      <a href="#models"><span class="zh">模型分工</span><span class="en">Models</span></a>
+      <a href="#guard"><span class="zh">守门</span><span class="en">Guardrails</span></a>
+      <a href="#skills">Skills</a>
+      <a href="#demo"><span class="zh">演示</span><span class="en">Demo</span></a>
+    </div>
+    <button class="pill" id="lang" type="button" aria-label="Switch language / 切换语言"><span class="zh">EN</span><span class="en">中文</span></button>
+    <a class="pill" href="https://github.com/arvelvale/krovin" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+  </div>
+</nav>
+
+<main id="top">
+<header class="hero wrap">
+  <p class="kicker"><i></i><span>DGX SPARK HACKATHON · 2026</span></p>
+  <h1>
+    <span class="zh">让每一次「AI 替人动手」，<br>都先给人<em class="s">看明白</em>。</span>
+    <span class="en">Every time an AI acts for you, <em class="s">you see it first.</em></span>
+  </h1>
+  <p class="lead">
+    <span class="zh">KROVIN 是跑在 NVIDIA DGX Spark 上的开发流 Agent：读 Linear issue、Obsidian 纪要和你的口述，完成「拆解 → 计划 → 开发 → 写日志 → 同步状态」。每一步「选哪个」——技能、模型、工具、记忆——都交给 JEV 决策层，并写进可度量的决策轨迹。</span>
+    <span class="en">KROVIN is a dev-flow agent running on NVIDIA DGX Spark. It reads Linear issues, Obsidian notes and what you tell it, then breaks down, plans, codes, logs and syncs status. Every “which one” choice (skill, model, tool, memory) goes to the JEV decision layer and is written into a measurable decision trace.</span>
+  </p>
+  <div class="cta">
+    <a class="btn primary" href="#demo"><span class="zh">看 74 秒演示</span><span class="en">Watch the 74 s demo</span> ↓</a>
+    <a class="btn ghost" href="https://github.com/arvelvale/krovin" target="_blank" rel="noopener noreferrer"><span class="zh">开源仓库</span><span class="en">Source on GitHub</span> ↗</a>
+    <a class="btn ghost" href="https://github.com/arvelvale/krovin/blob/main/web/public/report/KROVIN-%E9%A1%B9%E7%9B%AE%E6%8A%A5%E5%91%8A%E4%B9%A6.pdf" target="_blank" rel="noopener noreferrer"><span class="zh">项目报告书（PDF）</span><span class="en">Project report (PDF, zh)</span> ↗</a>
+  </div>
+
+  <figure class="shot glass">
+    <img src="img/work.webp" alt="KROVIN 工作台：会话栏、对话区与右侧「洞察」决策轨迹三栏" width="1440" height="900" loading="eager">
+    <figcaption><span class="zh">工作台：左侧会话与连接状态，中间对话，右侧「洞察」按顺序展开每一步决策。（本机运行同一前端的截图）</span><span class="en">The workbench: sessions and connection status on the left, chat in the middle, and an “Insights” column that unrolls every decision in order. (Screenshot of the same front end running locally.)</span></figcaption>
+  </figure>
+
+  <div class="stats">
+    <div class="stat"><b>JEV</b><span class="lbl"><span class="zh">结构化决策层</span><span class="en">structured decision layer</span></span></div>
+    <div class="stat"><b>12</b><span class="lbl"><span class="zh">项 Skills，渐进式披露</span><span class="en">skills, progressively disclosed</span></span></div>
+    <div class="stat"><b>3</b><span class="lbl"><span class="zh">档模型分工：主力 / 备用 / 难题</span><span class="en">model tiers: main / backup / hard</span></span></div>
+    <div class="stat"><b><span class="zh">本地</span><span class="en">Local</span></b><span class="lbl"><span class="zh">推理为主力（vLLM · Nemotron）</span><span class="en">inference first (vLLM · Nemotron)</span></span></div>
+  </div>
+</header>
+
+<section id="idea" class="wrap reveal">
+  <div class="sec-head">
+    <p class="kicker"><i></i><span class="zh">为什么做</span><span class="en">Why</span></p>
+    <h2><span class="zh">难点常常发生在写代码<em class="s">之前</em>。</span><span class="en">The hard part usually comes <em class="s">before</em> the code.</span></h2>
+  </div>
+  <div class="idea">
+    <div class="glass big">
+      <p><span class="zh">该选「实现改动」还是先写计划？该用 Spark 上的本地模型，还是把复杂步骤交给云端？一条旧纪要要不要带进上下文？碰到 Linear 更新，谁来按确认？</span><span class="en">Should it implement the change or write a plan first? Use the local model on the Spark, or hand the hard step to the cloud? Should an old meeting note enter the context? When Linear is about to change, who presses confirm?</span></p>
+      <p><span class="zh">我们没有让一个模型把这些问题混在一段话里猜，而是把每个「选哪个」拆成独立的结构化判断，逐个打分、逐个记录。</span><span class="en">We did not let one model guess at all of this in a single paragraph. Each “which one” became its own structured judgment, scored and recorded one by one.</span></p>
+      <blockquote><span class="zh">AI 准备替人做事的时候，人到底能不能看明白它要做什么。</span><span class="en">When an AI is about to act for you, can you actually tell what it is going to do?</span><span class="src"><span class="zh">—— 参赛征文《黑客松十日谈》</span><span class="en">— from the team's essay (zh)</span></span></blockquote>
+    </div>
+    <div class="principles">
+      <div class="glass"><h3><span class="zh">决策可见</span><span class="en">Decisions are visible</span></h3><p><span class="zh">技能两级概率、路由难度、记忆精选、每步门控，全部在右栏轨迹里能翻。</span><span class="en">Two-level skill probabilities, routing difficulty, memory picks and per-step gates all live in the trace column.</span></p></div>
+      <div class="glass"><h3><span class="zh">写操作先问人</span><span class="en">Writes ask first</span></h3><p><span class="zh">改文件、改 Linear 之前弹确认卡；拒绝之后 agent 不绕路。</span><span class="en">File and Linear writes raise a confirm card; after a “no”, the agent does not route around it.</span></p></div>
+      <div class="glass"><h3><span class="zh">宁可少说，不虚标</span><span class="en">Claim less, not more</span></h3><p><span class="zh">没验证的组件不画进架构图，数字都标明样本与口径。</span><span class="en">Unverified parts stay off the architecture diagram; numbers carry their sample and basis.</span></p></div>
+    </div>
+  </div>
+</section>
+
+<section id="pipeline" class="wrap reveal">
+  <div class="sec-head">
+    <p class="kicker"><i></i><span class="zh">一轮对话怎么走</span><span class="en">One turn, end to end</span></p>
+    <h2><span class="zh">从一句话到一次可审计的执行</span><span class="en">From one sentence to an auditable run</span></h2>
+    <p><span class="zh">点左边的步骤。右边的分数取自一次真实任务「修掉 DAY-298 金额累加精度的 bug」的轨迹。</span><span class="en">Click a step. The scores on the right come from a real run: “fix the DAY-298 money-summing precision bug”.</span></p>
+  </div>
+  <div class="pipe">
+    <div class="steps" id="steps" role="tablist"></div>
+    <div class="stage glass" id="stage" aria-live="polite"></div>
+  </div>
+</section>
+
+<section id="models" class="wrap reveal">
+  <div class="sec-head">
+    <p class="kicker"><i></i><span class="zh">模型分工</span><span class="en">Model tiers</span></p>
+    <h2><span class="zh">本地跑日常，难题再出门</span><span class="en">Local for the everyday, cloud only for the hard</span></h2>
+    <p><span class="zh">像 OpenCode 那样登记任何 OpenAI 兼容的供应商，再给三个分工位各选一个模型。「私有」开关决定隐私边界：只有私有模型能看到隐私记忆。</span><span class="en">Register any OpenAI-compatible provider, then assign one model to each of the three slots. A “private” flag sets the privacy boundary: only private models can see private memory.</span></p>
+  </div>
+  <div class="tiers">
+    <div class="glass tier main">
+      <span class="tag priv"><span class="zh">私有 · 本机</span><span class="en">Private · on-box</span></span>
+      <h3><span class="zh">主力</span><span class="en">Main</span></h3>
+      <div class="m">Nemotron-3.5 30B-A3B · NVFP4</div>
+      <p><span class="zh">DGX Spark 上的 vLLM，日常任务都交给它，摘要和记忆整理也由它来做。在节点上对两道代码题实测约 80 tok/s（样本很小，只当一次性能观察）。</span><span class="en">vLLM on the DGX Spark. Handles everyday work, plus summaries and memory upkeep. About 80 tok/s measured on two coding prompts, a tiny sample, so treat it as one observation.</span></p>
+    </div>
+    <div class="glass tier">
+      <span class="tag priv"><span class="zh">私有 · 本机</span><span class="en">Private · on-box</span></span>
+      <h3><span class="zh">备用</span><span class="en">Backup</span></h3>
+      <div class="m">Qwen3.8 27B · Ollama</div>
+      <p><span class="zh">主力连不上时顶上。同一批测试里它大约 11–13 tok/s，所以只做兜底。</span><span class="en">Steps in when the main model is unreachable. Roughly 11–13 tok/s in the same test, so it is a fallback only.</span></p>
+    </div>
+    <div class="glass tier">
+      <span class="tag ext"><span class="zh">外部 · 云端</span><span class="en">External · cloud</span></span>
+      <h3><span class="zh">难题</span><span class="en">Hard</span></h3>
+      <div class="m">StepFun step-5-preview</div>
+      <p><span class="zh">JEV 判断为难题（要写代码、非简单任务），或主力连续出错时升级到它。外部服务打开「经操作机代理出境」后才可达。</span><span class="en">Used when JEV rates a task hard (needs code, not simple) or the main model keeps failing. Reached through the operator-machine proxy.</span></p>
+    </div>
+  </div>
+</section>
+
+<section id="jev" class="wrap reveal">
+  <div class="sec-head">
+    <p class="kicker"><i></i><span class="zh">JEV 决策层</span><span class="en">The JEV layer</span></p>
+    <h2><span class="zh">五类「选哪个」，各自打分、各自留痕</span><span class="en">Five “which one” choices, each scored and logged</span></h2>
+    <p><span class="zh">JEV 给的是判断，不替主模型生成整篇答案。每个分数旁边都标着阈值，哪个值越大意味着什么，在配置里写成注释。</span><span class="en">JEV returns judgments, not the full answer. Every score is shown next to its threshold, and the direction of each threshold is documented in config.</span></p>
+  </div>
+  <div class="jev">
+    <div class="glass"><b>01</b><h3><span class="zh">技能选择</span><span class="en">Skill selection</span></h3><p><span class="zh">两级：先问要不要用技能，再问选中的是否合适。</span><span class="en">Two levels: should a skill be used, then does the chosen one fit.</span></p></div>
+    <div class="glass"><b>02</b><h3><span class="zh">模型路由</span><span class="en">Model routing</span></h3><p><span class="zh">简单 / 中等 / 困难 / 要写代码，四个维度给难度打分。</span><span class="en">Difficulty scored on four axes: simple, medium, hard, needs code.</span></p></div>
+    <div class="glass"><b>03</b><h3><span class="zh">工具门控</span><span class="en">Tool gating</span></h3><p><span class="zh">每次写操作前问两句：是不是合理步骤？会不会顺带改无关内容？</span><span class="en">Before each write: is it a reasonable step, and might it touch something unrelated?</span></p></div>
+    <div class="glass"><b>04</b><h3><span class="zh">记忆精选</span><span class="en">Memory picks</span></h3><p><span class="zh">只把相关的长期记忆放进上下文，隐私记忆只给私有模型。</span><span class="en">Only relevant long-term memory enters context; private memory only goes to private models.</span></p></div>
+    <div class="glass"><b>05</b><h3><span class="zh">上下文压缩</span><span class="en">Context compaction</span></h3><p><span class="zh">每次调用模型前检查预算，保存检查点，中断后可接续。</span><span class="en">Budget checked before each model call, with checkpoints so a session can resume.</span></p></div>
+  </div>
+  <figure class="trace glass">
+    <img src="img/trace.webp" alt="一次真实任务的对话与决策轨迹：技能选择两级打分、模型路由难度判断" width="1440" height="900" loading="lazy">
+  </figure>
+  <p class="note" style="margin-top:12px"><span class="zh">上图：修 DAY-298 的真实一轮。先复现 <code>0.30000000000000004 != 0.3</code>，再改代码；测试从 3 个通过到 6 个通过；用时 6 分 46 秒；没有动 Linear 状态。</span><span class="en">Above: a real run fixing DAY-298. It reproduced <code>0.30000000000000004 != 0.3</code> first, then changed code; tests went from 3 passing to 6; it took 6 min 46 s and left Linear's status alone.</span></p>
+</section>
+
+<section id="guard" class="wrap reveal">
+  <div class="sec-head">
+    <p class="kicker"><i></i><span class="zh">守门</span><span class="en">Guardrails</span></p>
+    <h2><span class="zh">那个确认框出现的时候，<em class="s">先别急着点</em></span><span class="en">When the confirm box appears, <em class="s">don't rush the click</em></span></h2>
+    <p><span class="zh">下面是个可点的示意。真实面板里的确认卡先用一句人话说清「要做什么」和「JEV 怎么看」，原始参数折叠在下面。</span><span class="en">A clickable sketch below. In the real panel the card first says in plain words what is about to happen and what JEV thinks; raw parameters are folded away.</span></p>
+  </div>
+  <div class="guard">
+    <div class="glass confirm" id="confirm">
+      <h3>⚠ <span class="zh">要改动文件，确认一下</span><span class="en">About to change files. Confirm?</span></h3>
+      <div class="row"><code>run_skill_script</code> <span class="zh">本地写</span><span class="en">local write</span></div>
+      <div class="bars row">
+        <div class="bar ok"><span><span class="zh">合理步骤</span><span class="en">Reasonable step</span></span><div class="t"><i data-w="46"></i></div><output>0.46</output></div>
+        <div class="bar rev"><span><span class="zh">越界风险</span><span class="en">Out-of-scope risk</span></span><div class="t"><i data-w="17"></i></div><output>0.17</output></div>
+      </div>
+      <div class="acts"><button type="button" data-act="no"><span class="zh">不行</span><span class="en">No</span></button><button type="button" class="go" data-act="yes"><span class="zh">同意执行</span><span class="en">Approve</span></button></div>
+      <div class="out" id="confirm-out"><span class="zh">（示意：数值取自面板里一张真实确认卡）</span><span class="en">(Sketch: values taken from one real confirm card in the panel.)</span></div>
+    </div>
+    <div class="rules">
+      <div class="glass"><h3><span class="zh">两句话问门控，而不是一句</span><span class="en">Two gate questions, not one</span></h3><p><span class="zh">只问「合不合适」时，合法操作最低分 0.16、越界操作最高分 0.17，几乎贴在一起。拆成「是不是合理步骤」和「会不会顺带删改无关内容」后，9 条标定用例有 7 条符合预期，3 个破坏性改动都被拦下。样本很小，只说明方向。</span><span class="en">With a single “is this appropriate” question, the lowest legitimate score was 0.16 and the highest out-of-scope one 0.17, nearly touching. Split into “is it a reasonable step” and “might it touch unrelated content”, 7 of 9 calibration cases matched and all 3 destructive edits were blocked. A small sample; it shows direction only.</span></p></div>
+      <div class="glass"><h3><span class="zh">硬边界不随「全自动」改变</span><span class="en">Hard limits survive “auto” mode</span></h3><p><span class="zh">全自动（yolo）只是把确认交给 JEV 自动决定。技能白名单、路径沙箱、命令白名单、Linear 范围、agent 不 push，一条都不放开。</span><span class="en">Auto mode only hands the confirmation to JEV. The skill allowlist, path sandbox, command allowlist, Linear scope and “the agent never pushes” all stay.</span></p></div>
+      <div class="glass"><h3><span class="zh">代码跑在 OpenShell 沙箱里</span><span class="en">Code runs in an OpenShell sandbox</span></h3><p><span class="zh">NVIDIA OpenShell 容器：网络只放行策略里列出的软件源，系统目录只读、非 root，只有沙箱内目录可写。</span><span class="en">An NVIDIA OpenShell container: network only to allowlisted package sources, read-only system paths, non-root, writes only inside the sandbox.</span></p></div>
+    </div>
+  </div>
+</section>
+
+<section id="skills" class="wrap reveal">
+  <div class="sec-head">
+    <p class="kicker"><i></i>Skills</p>
+    <h2><span class="zh">12 项开发流技能</span><span class="en">Twelve dev-flow skills</span></h2>
+    <p><span class="zh">每个技能是一份 <code style="font:500 13px var(--mono)">SKILL.md</code>，渐进式披露：先给 JEV 看描述，选中后才加载正文。绿色标签表示只读。</span><span class="en">Each skill is one <code style="font:500 13px var(--mono)">SKILL.md</code>, progressively disclosed: JEV reads the description first, the body loads only if chosen. Green marks read-only.</span></p>
+  </div>
+  <div class="skills" id="skill-grid"></div>
+</section>
+
+<section id="demo" class="wrap reveal">
+  <div class="sec-head">
+    <p class="kicker"><i></i><span class="zh">演示</span><span class="en">Demo</span></p>
+    <h2><span class="zh">74 秒看完一轮</span><span class="en">One turn in 74 seconds</span></h2>
+  </div>
+  <figure class="demo glass">
+    <video controls preload="metadata" playsinline poster="img/work.webp"><source src="demo.mp4" type="video/mp4"></video>
+  </figure>
+</section>
+
+<section id="honest" class="wrap reveal">
+  <div class="sec-head">
+    <p class="kicker"><i></i><span class="zh">如实说明</span><span class="en">Straight talk</span></p>
+    <h2><span class="zh">哪些数字能信到什么程度</span><span class="en">How far each number can be trusted</span></h2>
+  </div>
+  <div class="honest">
+    <div class="glass"><h3><i>88.5% → 100%</i><span class="zh">是训练集结果</span><span class="en">is a training-set result</span></h3><p><span class="zh">26 条技能选择任务的 A/B：主模型自选 88.5%，加 JEV 并调阈值后 100%。阈值就在同一套题上调出来，不能说遇到新任务也有 100%；JEV 还要付出延迟和 token 开销。</span><span class="en">26 skill-selection tasks, A/B: the model choosing alone scored 88.5%; with JEV and tuned thresholds, 100%. The thresholds were tuned on the same set, so it does not predict new tasks, and JEV costs latency and tokens.</span></p></div>
+    <div class="glass"><h3><i>~80 tok/s</i><span class="zh">只测了两道题</span><span class="en">from two prompts</span></h3><p><span class="zh">跑得快不等于想得对。这是一次性能观察，不是复杂规划质量的结论。</span><span class="en">Fast is not the same as right. This is a throughput observation, not a verdict on planning quality.</span></p></div>
+    <div class="glass"><h3><i>offline</i><span class="zh">评审期面板已下线</span><span class="en">The judging-period panel is down</span></h3><p><span class="zh">比赛结束后，评审期间的在线面板已无法访问。本页截图来自本机运行的同一前端，演示视频是当时的录屏。</span><span class="en">After the hackathon the judging-period panel stopped being reachable. Screenshots here come from the same front end running locally; the video is the original recording.</span></p></div>
+    <div class="glass"><h3><i>tunnel</i><span class="zh">曾依赖一台在线的操作机</span><span class="en">It relied on an online operator machine</span></h3><p><span class="zh">节点直连不了境外，JEV 和 Linear 经 SSH 反向隧道走操作机代理，所以评审期间操作机必须开着。数小时连续运行也没有实测。</span><span class="en">The node could not reach abroad directly; JEV and Linear went through an SSH reverse tunnel to the operator machine, which had to stay on. Multi-hour continuous runs were not tested.</span></p></div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div><span class="zh">KROVIN · 五人团队 · 2026-09-20 → 09-29 · NVIDIA DGX Spark Hackathon</span><span class="en">KROVIN · team of five · 2026-09-20 → 09-29 · NVIDIA DGX Spark Hackathon</span></div>
+    <div>
+      <a href="https://github.com/arvelvale/krovin" target="_blank" rel="noopener noreferrer">GitHub</a> ·
+      <a href="https://github.com/arvelvale/krovin/tree/main/docs" target="_blank" rel="noopener noreferrer"><span class="zh">设计文档</span><span class="en">Design docs (zh)</span></a> ·
+      <a href="https://github.com/arvelvale/krovin/tree/main/skills" target="_blank" rel="noopener noreferrer">skills/</a> ·
+      <a href="https://arvelvale.github.io/en/projects/"><span class="zh">回到作品集</span><span class="en">Back to projects</span></a>
+    </div>
+    <p class="back"><span class="zh">字体 Inter 与 Instrument Serif 随页附带，许可见 fonts/ 目录（SIL OFL）。</span><span class="en">Inter and Instrument Serif are bundled; licenses in fonts/ (SIL OFL).</span></p>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var html = document.documentElement;
+
+  /* 语言：先看 localStorage，再看浏览器语言 */
+  var stored = null;
+  try { stored = localStorage.getItem('krovin-lang'); } catch (e) {}
+  var lang = stored || ((navigator.language || '').toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en');
+  function setLang(l) {
+    lang = l;
+    html.lang = l === 'zh' ? 'zh-CN' : 'en';
+    try { localStorage.setItem('krovin-lang', l); } catch (e) {}
+    renderSteps(); renderStage(); renderSkills();
+  }
+  document.getElementById('lang').addEventListener('click', function () { setLang(lang === 'zh' ? 'en' : 'zh'); });
+  html.lang = lang === 'zh' ? 'zh-CN' : 'en';
+  var t = function (o) { return o[lang]; };
+
+  /* 流水线：数值取自一次真实任务轨迹（修 DAY-298） */
+  var STEPS = [
+    { n: { zh: '输入', en: 'Input' }, h: { zh: '一句话，或 issue、纪要', en: 'A sentence, an issue or a note' },
+      p: { zh: '输入可以是你的口述、一条 Linear issue，或一份 Obsidian 会议纪要。这一步还没有任何动作，先把它交给后面的判断。', en: 'Input can be what you say, a Linear issue, or an Obsidian meeting note. Nothing acts yet; it is handed to the judgments that follow.' },
+      bars: [] },
+    { n: { zh: '技能选择', en: 'Skill selection' }, h: { zh: '两级判断：要不要用技能、选中的合不合适', en: 'Two levels: use a skill at all, and is the pick right' },
+      p: { zh: '第一级三问取平均，竖线是阈值；第二级 ≥0.30 可选、≥0.50 可组合。最后一问是「光说就够」，它是反向的：越高越说明不需要技能。', en: 'Level one averages three questions against a threshold. Level two: ≥0.30 selectable, ≥0.50 composable. The last question, “talking is enough”, is inverted: higher means no skill needed.' },
+      bars: [[{ zh: '门控值（三问平均）', en: 'Gate (3-q mean)' }, 89, 'ok'], [{ zh: '要动仓库 / 任务', en: 'Touches repo / task' }, 91], [{ zh: '有既定流程', en: 'Has a set workflow' }, 81], [{ zh: '光说就够（反向）', en: 'Talking is enough (inverted)' }, 5, 'rev'], [{ zh: 'implement-change · 候选', en: 'implement-change · candidate' }, 100], [{ zh: 'implement-change · 合适度', en: 'implement-change · fit' }, 96, 'ok']] },
+    { n: { zh: '模型路由', en: 'Model routing' }, h: { zh: '难题交给 step-5-preview', en: 'Hard work goes to step-5-preview' },
+      p: { zh: '难度四维打分。「困难」≥0.50 才交给难题模型；这一轮「困难」只有 0.25，但「要写代码」是 0.96，且不是简单任务，所以走了难题档。', en: 'Difficulty is scored on four axes. “Hard” ≥ 0.50 escalates; here it was only 0.25, but “needs code” was 0.96 and the task was not simple, so it took the hard tier.' },
+      bars: [[{ zh: '简单', en: 'Simple' }, 6], [{ zh: '中等', en: 'Medium' }, 69], [{ zh: '困难', en: 'Hard' }, 25], [{ zh: '要写代码', en: 'Needs code' }, 96, 'ok']] },
+    { n: { zh: '记忆精选', en: 'Memory picks' }, h: { zh: '只带相关的，隐私只给私有模型', en: 'Only what is relevant; private only to private models' },
+      p: { zh: '长期记忆按相关度精选后才进入上下文。主力换成外部 API 时，隐私记忆会自动被过滤。', en: 'Long-term memory is picked by relevance before it enters context. If the main model is an external API, private memory is filtered out automatically.' },
+      bars: [] },
+    { n: { zh: '规划循环', en: 'Plan loop' }, h: { zh: '压缩检查 → 模型 → 门控 → 执行 → 回填', en: 'Compact → model → gate → run → feed back' },
+      p: { zh: '每一圈先检查上下文预算，再让主模型出下一步，经门控后执行并回填结果。默认不限步数；一次实测会话连续调用了 35 次工具后正常收尾。', en: 'Each loop checks the context budget, asks the model for the next step, gates it, runs it and feeds the result back. No step cap by default; one test session ran 35 tool calls before finishing normally.' },
+      bars: [] },
+    { n: { zh: '工具门控', en: 'Tool gate' }, h: { zh: '写操作先问人', en: 'Writes ask a human first' },
+      p: { zh: '写文件、改 Linear 之前，门控会问「合不合理」和「越不越界」，必要时弹确认卡（见下方「守门」）。', en: 'Before writing a file or touching Linear, the gate asks “reasonable?” and “out of scope?”, and may raise a confirm card (see Guardrails).' },
+      bars: [[{ zh: '合理步骤', en: 'Reasonable step' }, 46, 'ok'], [{ zh: '越界风险', en: 'Out-of-scope risk' }, 17, 'rev']] },
+    { n: { zh: '回复与留痕', en: 'Reply & trace' }, h: { zh: '结论、做了什么、没做完的', en: 'Verdict, what was done, what is left' },
+      p: { zh: '回复固定写清结论、做了什么、测试结果和没完成的事；这一轮的所有决策与用量写进 trace.jsonl，随时可以回看。', en: 'Replies always state the verdict, what was done, test results and what is unfinished; every decision and its usage lands in trace.jsonl for later review.' },
+      bars: [] }
+  ];
+  var cur = 0, timer = null;
+  var stepsEl = document.getElementById('steps'), stageEl = document.getElementById('stage');
+  function renderSteps() {
+    stepsEl.innerHTML = '';
+    STEPS.forEach(function (s, i) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.setAttribute('role', 'tab'); b.className = i === cur ? 'on' : '';
+      b.innerHTML = '<b>0' + (i + 1) + '</b><span>' + t(s.n) + '</span>';
+      b.addEventListener('click', function () { cur = i; stopAuto(); renderSteps(); renderStage(); });
+      stepsEl.appendChild(b);
+    });
+  }
+  function renderStage() {
+    var s = STEPS[cur];
+    var bars = s.bars.map(function (r) {
+      return '<div class="bar ' + (r[2] || '') + '"><span>' + t(r[0]) + '</span><div class="t"><i data-w="' + r[1] + '"></i></div><output>' + (r[1] / 100).toFixed(2) + '</output></div>';
+    }).join('');
+    stageEl.innerHTML = '<p class="kicker"><i></i>' + '0' + (cur + 1) + ' / 0' + STEPS.length + '</p><h3>' + t(s.h) + '</h3><p>' + t(s.p) + '</p>' +
+      (bars ? '<div class="bars">' + bars + '</div><p class="note">' + (lang === 'zh' ? '分数来自真实轨迹；竖线阈值在面板里可见。' : 'Scores come from a real trace; thresholds are visible in the panel.') + '</p>' : '');
+    setTimeout(fillBars, 40);
+  }
+  function fillBars() {
+    document.querySelectorAll('.bar .t i[data-w]').forEach(function (i) { i.style.width = i.dataset.w + '%'; });
+  }
+  function stopAuto() { if (timer) { clearInterval(timer); timer = null; } }
+  function startAuto() {
+    if (reduce || timer) return;
+    timer = setInterval(function () { cur = (cur + 1) % STEPS.length; renderSteps(); renderStage(); }, 5200);
+  }
+
+  /* 技能 */
+  var SKILLS = [
+    ['issue-breakdown', { zh: '把 Linear issue 或需求拆成可独立完成的子任务，每条带验收标准。', en: 'Split an issue or requirement into independently doable subtasks with acceptance criteria.' }],
+    ['plan-writer', { zh: '为选定的 issue 写实施计划：切片、验收、风险、涉及文件。', en: 'Write an implementation plan: slices, acceptance, risks, touched files.' }],
+    ['implement-change', { zh: '按 issue 或计划改代码、补测试并跑通，在独立分支上提交。', en: 'Change code per an issue or plan, add tests, make them pass, commit on its own branch.' }],
+    ['review-gate', { zh: '对照仓库 AGENTS.md 的硬约定审查改动，按阻断 / 建议 / 通过分级。', en: 'Review changes against AGENTS.md, graded as block / suggest / pass.' }],
+    ['test-gap-finder', { zh: '找出 diff 里没被测试覆盖的分支路径，建议补测位置。', en: 'Find branches in the diff the tests do not cover and suggest where to add them.', ro: 1 }],
+    ['branch-hygiene', { zh: '检查分支命名、未提交改动、与 main 的同步状态，给清理建议。', en: 'Check branch naming, uncommitted changes and sync with main; suggest cleanup.', ro: 1 }],
+    ['progress-logger', { zh: '把当天提交和完成的 issue 整理成 docs/progress/<日期>.md。', en: 'Turn the day\'s commits and closed issues into docs/progress/<date>.md.' }],
+    ['changelog-sync', { zh: '按版本归类提交记录，生成或更新 CHANGELOG.md，写入前先确认。', en: 'Group commits by version and update CHANGELOG.md, confirming before it writes.' }],
+    ['status-sync', { zh: '根据提交和测试结果，把 Linear issue 的状态与进展评论同步过去。', en: 'Sync a Linear issue\'s status and a progress comment from commits and test results.' }],
+    ['standup-brief', { zh: '汇总提交、Linear 与纪要，生成「昨日完成 / 今日计划 / 阻塞」。', en: 'Summarize commits, Linear and notes into done yesterday / plan today / blockers.' }],
+    ['meeting-to-tasks', { zh: '从 Obsidian 纪要提取行动项，查重后作为 issue 草稿，经确认再创建。', en: 'Extract action items from Obsidian notes, de-duplicate, draft issues and create them only after confirmation.' }],
+    ['build-webpage', { zh: '在工作区里从零写静态网页或小游戏，面板里可直接预览。', en: 'Build a static page or small game from scratch in the workspace, previewable in the panel.' }]
+  ];
+  function renderSkills() {
+    document.getElementById('skill-grid').innerHTML = SKILLS.map(function (s) {
+      return '<div class="glass skill">' + (s[1].ro ? '<span class="ro">' + (lang === 'zh' ? '只读' : 'read-only') + '</span>' : '') + '<code>' + s[0] + '</code><p>' + t(s[1]) + '</p></div>';
+    }).join('');
+  }
+
+  /* 确认卡示意 */
+  var out = document.getElementById('confirm-out');
+  document.getElementById('confirm').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-act]'); if (!b) return;
+    var no = b.dataset.act === 'no';
+    out.textContent = no
+      ? (lang === 'zh' ? '已拒绝。agent 不会绕路再写一遍，而是把方案留在对话里，问你要不要逐条来。拒绝本身也写进了轨迹。' : 'Declined. The agent does not route around it; it leaves the proposal in the chat and asks how you want to proceed. The refusal is logged too.')
+      : (lang === 'zh' ? '已同意。这一步会在沙箱里执行，结果与这次确认一起写进决策轨迹。' : 'Approved. This step runs in the sandbox, and the result is logged with this confirmation.');
+  });
+
+  /* 滚动入场 */
+  var revealEls = document.querySelectorAll('.reveal');
+  if ('IntersectionObserver' in window && !reduce) {
+    var io = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+    }, { rootMargin: '0px 0px -8% 0px' });
+    revealEls.forEach(function (el) { io.observe(el); });
+  } else { revealEls.forEach(function (el) { el.classList.add('in'); }); }
+
+  /* 确认卡里的条形先填一次；流水线只在看得见时自动播放 */
+  fillBars();
+  renderSteps(); renderStage(); renderSkills();
+  var pipe = document.getElementById('pipeline');
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(function (es) { es[0].isIntersecting ? startAuto() : stopAuto(); }, { threshold: 0.35 }).observe(pipe);
+  }
+})();
+</script>
+</body>
+</html>

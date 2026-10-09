@@ -1,0 +1,45 @@
+name: Pages
+
+# 落地页：site/ 加上演示视频拼成站点后发布到 https://arvelvale.github.io/krovin/
+# 演示视频沿用 web/public/demo/demo.mp4，不在 site/ 里重复存一份（本地直接打开 site/index.html 时视频会缺）。
+on:
+  push:
+    branches: [main]
+    paths: ["site/**", "web/public/demo/demo.mp4", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只部署一次，新推送顶掉还在排队的旧部署
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble site
+        run: |
+          mkdir -p _site
+          cp -r site/. _site/
+          cp web/public/demo/demo.mp4 _site/demo.mp4
+          # 页面引用到的文件必须都在，缺一个就别发布
+          for f in $(grep -oE '(img|fonts)/[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*\.(webp|woff2)' _site/index.html | sort -u) demo.mp4 favicon.svg; do
+            test -f "_site/$f" || { echo "missing $f"; exit 1; }
+          done
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
